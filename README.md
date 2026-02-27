@@ -18,6 +18,7 @@
 │  │  └─ database_info_dto.py
 │  └─ db/
 │     └─ session.py
+├─ .dockerignore
 ├─ docker-compose.yml
 ├─ Dockerfile
 ├─ requirements.txt
@@ -81,4 +82,5 @@ curl -i "http://localhost:8080/docs"
 curl -s "http://localhost:8080/info/server"
 curl -s "http://localhost:8080/info/client"
 curl -s "http://localhost:8080/info/database"
+
 ```
