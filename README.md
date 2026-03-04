@@ -1,6 +1,4 @@
-# LB1 FastAPI + PostgreSQL
-
-Минимальный учебный сервис на `FastAPI` + `PostgreSQL` с запуском через `docker compose`.
+# LB1
 
 ## Структура
 
@@ -22,12 +20,6 @@ lb1/
 ├─ requirements.txt
 └─ README.md
 ```
-
-## Что реализовано
-
-- `GET /info/server` - версия Python/FastAPI + locale/timezone
-- `GET /info/client` - IP клиента + User-Agent
-- `GET /info/database` - драйвер, версия PostgreSQL, имя БД
 
 ## Запуск
 
