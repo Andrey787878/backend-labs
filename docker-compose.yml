@@ -1,28 +1,40 @@
+version: '3.8'
 services:
   api:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runtime
     env_file:
       - .env
     ports:
-      - "8080:8080"
+      - '8080:8080'
+    environment:
+      PYTHONUNBUFFERED: '1'
+    develop:
+      watch:
+        - action: rebuild
+          path: ./app
+        - action: rebuild
+          path: ./requirements.txt
+        - action: rebuild
+          path: ./Dockerfile
     depends_on:
       db:
         condition: service_healthy
 
   db:
-    image: postgres:17@sha256:9ba47fa6d1c34e9cc4c1758640e7774a9b73ea0fba891f14088321ba7561d253
+    image: postgres:17
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 5s
       timeout: 3s
       retries: 10
