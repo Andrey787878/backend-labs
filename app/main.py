@@ -25,21 +25,14 @@ engine = create_engine(settings.database_url, pool_pre_ping=True)
 
 app = FastAPI()
 
-@app.on_event("startup")
-def setup_timezone() -> None:
-    os.environ["TZ"] = settings.app_timezone
-    if hasattr(time, "tzset"):
-        time.tzset()
-
-
 def parse_ip(raw_value: str | None) -> str:
-    if not raw_value:
+    if raw_value is None:
         return "unknown"
-    candidate = raw_value.split(",", maxsplit=1)[0].strip()
-    if not candidate:
+    value = raw_value.strip()
+    if not value:
         return "unknown"
     try:
-        return str(ipaddress.ip_address(candidate))
+        return str(ipaddress.ip_address(value))
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -47,12 +40,10 @@ def parse_ip(raw_value: str | None) -> str:
         ) from error
 
 
-def extract_client_ip(request: Request) -> str:
-    return parse_ip(request.client.host if request.client else None)
-
-
 def validate_user_agent(raw_value: str | None) -> str:
-    value = (raw_value or "").strip()
+    if raw_value is None:
+        return "unknown"
+    value = raw_value.strip()
     if not value:
         return "unknown"
     if len(value) > MAX_USER_AGENT_LENGTH:
@@ -80,9 +71,11 @@ def server_info() -> ServerInfoDTO:
 
 @app.get("/info/client", response_model=ClientInfoDTO)
 def client_info(request: Request) -> ClientInfoDTO:
+    client_host = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
     return ClientInfoDTO(
-        ip=extract_client_ip(request),
-        user_agent=validate_user_agent(request.headers.get("user-agent")),
+        ip=parse_ip(client_host),
+        user_agent=validate_user_agent(user_agent),
     )
 
 
