@@ -50,9 +50,9 @@ docker compose down
 ## Проверка API
 
 ```bash
-curl -i http://localhost:8080/info/server
-curl -i http://localhost:8080/info/client
-curl -i http://localhost:8080/info/database
+curl http://localhost:8080/info/server
+curl http://localhost:8080/info/client
+curl http://localhost:8080/info/database
 ```
 
 ### Проверка опасного `User-Agent`
