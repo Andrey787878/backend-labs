@@ -5,6 +5,9 @@
 Для защищенных методов сначала нажмите `Authorize` и вставьте:
 `Bearer <access_token>`.
 
+Защищенные методы: `GET /me`, `POST /out`, `GET /tokens`, `POST /out_all`, `POST /change-password`.
+Если не передать `Authorization`, сервер вернет `401` с ошибкой `"Отсутствует заголовок Authorization."`.
+
 ## 1. Базовые пользователи для проверки
 
 `User A`:
@@ -180,6 +183,10 @@
 3. Еще раз вызовите `refresh` с `refresh_1` (старым) -> `403`.
 
 ## 5. `POST /api/auth/change-password`
+
+Перед проверкой этого метода обязательно выполните `POST /api/auth/login`,
+скопируйте `access_token` и вставьте его через кнопку `Authorize`:
+`Bearer <access_token>`.
 
 Успех (`200`):
 
