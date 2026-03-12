@@ -10,7 +10,7 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-compile -r requirements.txt -t /deps
 
-FROM gcr.io/distroless/python3-debian12:nonroot AS runtime
+FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
@@ -18,9 +18,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/deps
 
+RUN groupadd --gid 1000 app && \
+    useradd --uid 1000 --gid 1000 --create-home --shell /usr/sbin/nologin app
+
 COPY --from=deps /deps /deps
-COPY --chown=65532:65532 app /app/app
+COPY --chown=1000:1000 app /app/app
+
+USER 1000:1000
 
 EXPOSE 8080
 
-CMD ["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
