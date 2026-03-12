@@ -19,6 +19,11 @@
 - В БД хранятся: `access_jti`, `refresh_hash` и метаданные сессии.
 - Проверка доступа к защищенным маршрутам идет не только по JWT, но и по server-side состоянию сессии в БД.
 
+## 2.1 Документация в `docs/`
+
+- `docs/DB_SCHEMA.md` — поля таблиц `users` и `auth_sessions`.
+- `docs/AUTH_ENDPOINTS_SCHEMA.md` — схема работы всех endpoint-ов `/api/auth/*`.
+
 ## 3. Архитектура `app/`
 
 ### 3.1 Дерево `app/`
@@ -77,7 +82,7 @@ HTTP Request
 `app/config.py`:
 
 - Класс `Settings` читает `.env`.
-- Валидирует `JWT_ALLOWED_ALGS`, `REFRESH_TOKEN_PEPPER`, TTL и остальные параметры.
+- Валидирует `JWT_ALGORITHM`, `REFRESH_TOKEN_PEPPER`, TTL и остальные параметры.
 - Разделяет секреты: `JWT_SECRET` только для подписи JWT, `REFRESH_TOKEN_PEPPER` только для hash refresh.
 
 `app/models.py`:
@@ -89,7 +94,8 @@ HTTP Request
 `app/schemas.py`:
 
 - Валидирует форму входного JSON для каждого endpoint.
-- Проверяет username, сложность пароля, возраст (14+), совпадение `password/c_password`.
+- Проверяет формат username для `register`, возраст (14+), сложность пароля при `register`/`change-password`, совпадение `password/c_password`.
+- Для `login` применяет те же правила формата, что и в ТЗ: `username` по шаблону и `password` по требованиям сложности.
 - Возвращает DTO через `to_dto()`, чтобы сервис работал уже с валидированными данными.
 
 `app/dto.py`:
@@ -260,7 +266,7 @@ Refresh token:
 - `APP_HOST`
 - `APP_PORT`
 - `JWT_SECRET`
-- `JWT_ALLOWED_ALGS`
+- `JWT_ALGORITHM`
 - `REFRESH_TOKEN_PEPPER`
 - `ACCESS_TOKEN_TTL_MINUTES`
 - `REFRESH_TOKEN_TTL_MINUTES`
@@ -275,7 +281,7 @@ Refresh token:
 - `JWT_SECRET` — только подпись JWT.
 - `REFRESH_TOKEN_PEPPER` — только хеширование refresh token.
 - `JWT_SECRET` обязателен и должен быть не короче 32 символов.
-- Для HMAC учитывается длина секрета в байтах: `HS256 >= 32`, `HS384 >= 48`, `HS512 >= 64`.
+- Для `HS256` длина `JWT_SECRET` должна быть не меньше `32` байт.
 - Оба секрета должны быть заданы; использовать одинаковые значения не рекомендуется.
 
 ## 6. Запуск
@@ -337,7 +343,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080
 ## 8. Проверка API через Swagger
 
 - Откройте `http://localhost:8080/docs`.
-- Все body для быстрых вставок собраны в самом низу README в разделе **13**.
+- Все готовые body и сценарии проверок вынесены в `docs/AUTH_SWAGGER_CHECKS.md`.
 - Для защищенных методов сначала нажмите `Authorize` и вставьте:
   `Bearer <access_token>`
 
@@ -369,229 +375,3 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080
 
 - Таблицы создаются на startup через `Base.metadata.create_all(...)`.
 - Rate-limit реализован in-memory и работает в рамках одного процесса приложения.
-- Для реального production-проекта лучше использовать миграции.
-
-### 11.1 Базовые пользователи для проверки
-
-`User A`:
-
-```json
-{
-	"username": "StudentA",
-	"email": "studenta@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#123",
-	"birthday": "2000-05-20"
-}
-```
-
-`User B`:
-
-```json
-{
-	"username": "StudentB",
-	"email": "studentb@example.com",
-	"password": "Strong#456",
-	"c_password": "Strong#456",
-	"birthday": "1999-08-15"
-}
-```
-
-### 11.2 `POST /api/auth/register`
-
-Успех (`201`): используйте `User A`, затем `User B`.
-
-Ошибка `409` (дубликат):
-
-```json
-{
-	"username": "StudentA",
-	"email": "studenta@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#123",
-	"birthday": "2000-05-20"
-}
-```
-
-Ошибка `422` (username не по правилам):
-
-```json
-{
-	"username": "student1",
-	"email": "newuser@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#123",
-	"birthday": "2000-05-20"
-}
-```
-
-Ошибка `422` (слабый пароль):
-
-```json
-{
-	"username": "StudentC",
-	"email": "studentc@example.com",
-	"password": "weakpass",
-	"c_password": "weakpass",
-	"birthday": "2000-05-20"
-}
-```
-
-Ошибка `422` (`c_password` не совпадает):
-
-```json
-{
-	"username": "StudentD",
-	"email": "studentd@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#124",
-	"birthday": "2000-05-20"
-}
-```
-
-Ошибка `422` (неверный формат даты):
-
-```json
-{
-	"username": "StudentE",
-	"email": "studente@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#123",
-	"birthday": "20-05-2000"
-}
-```
-
-Ошибка `422` (возраст < 14):
-
-```json
-{
-	"username": "StudentF",
-	"email": "studentf@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#123",
-	"birthday": "2015-01-01"
-}
-```
-
-### 11.3 `POST /api/auth/login`
-
-Успех (`200`):
-
-```json
-{
-	"username": "StudentA",
-	"password": "Strong#123"
-}
-```
-
-Ошибка `401` (неверный пароль):
-
-```json
-{
-	"username": "StudentA",
-	"password": "Wrong#123"
-}
-```
-
-Ошибка `401` (неизвестный пользователь):
-
-```json
-{
-	"username": "StudentZ",
-	"password": "Strong#123"
-}
-```
-
-Ошибка `422` (невалидный username):
-
-```json
-{
-	"username": "student",
-	"password": "Strong#123"
-}
-```
-
-Проверка rate-limit (`429`): отправьте неверный логин из одного клиента больше лимита в минуту.
-
-### 11.4 `POST /api/auth/refresh`
-
-Успех (`200`):
-
-```json
-{
-	"refresh_token": "<REFRESH_TOKEN_ИЗ_LOGIN>"
-}
-```
-
-Ошибка `422` (пустой `refresh_token`):
-
-```json
-{
-	"refresh_token": "   "
-}
-```
-
-Ошибка `401` (случайный токен):
-
-```json
-{
-	"refresh_token": "not_existing_refresh_token"
-}
-```
-
-Ошибка `403` (reuse detection):
-
-1. Логин и сохраните `refresh_1`.
-2. Вызовите `refresh` с `refresh_1` и получите `refresh_2`.
-3. Еще раз вызовите `refresh` с `refresh_1` (старым) -> `403`.
-
-### 13.5 `POST /api/auth/change-password`
-
-Успех (`200`):
-
-```json
-{
-	"current_password": "Strong#123",
-	"new_password": "NewStrong#123",
-	"c_password": "NewStrong#123"
-}
-```
-
-Ошибка `401` (неверный текущий пароль):
-
-```json
-{
-	"current_password": "Wrong#123",
-	"new_password": "NewStrong#123",
-	"c_password": "NewStrong#123"
-}
-```
-
-Ошибка `422` (слабый новый пароль):
-
-```json
-{
-	"current_password": "Strong#123",
-	"new_password": "weak",
-	"c_password": "weak"
-}
-```
-
-Ошибка `422` (`c_password` не совпадает):
-
-```json
-{
-	"current_password": "Strong#123",
-	"new_password": "NewStrong#123",
-	"c_password": "NewStrong#124"
-}
-```
-
-### 11.6 Защищенные методы без body
-
-1. `GET /api/auth/me` без `Authorize` -> `401`.
-2. `GET /api/auth/me` с валидным access -> `200`.
-3. `POST /api/auth/out` с валидным access -> `200`, потом `GET /me` тем же access -> `403`.
-4. Два логина подряд -> `GET /api/auth/tokens` показывает активные сессии (`200`).
-5. `POST /api/auth/out_all` в одной сессии -> в другой сессии `GET /me` -> `403`.
-6. `POST /api/auth/register` с `Authorize` (валидный access) -> `403` (guest-only).
