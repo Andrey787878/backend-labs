@@ -30,3 +30,9 @@
 | `revoked_reason`     | `String(255)`                 | Да   | Причина отзыва сессии.                                          |
 | `ip`                 | `String(45)`                  | Да   | IP клиента при создании/обновлении сессии.                      |
 | `user_agent`         | `String(512)`                 | Да   | User-Agent клиента при создании/обновлении сессии.              |
+
+### Сброс данных БД
+
+```
+docker compose exec db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "TRUNCATE TABLE auth_sessions, users RESTART IDENTITY CASCADE;"'
+```
