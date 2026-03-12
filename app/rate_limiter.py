@@ -1,5 +1,3 @@
-"""Назначение: in-memory rate-limit для auth-эндпоинтов."""
-
 from __future__ import annotations
 
 from collections import OrderedDict, deque
