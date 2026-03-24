@@ -1,248 +1,90 @@
 # Лабораторная работа №2: Авторизация (FastAPI + PostgreSQL)
 
-## 1. Проект реализует
+## 1. Кратко о проекте
 
-- регистрацию пользователя;
+Этот сервис реализует API-аутентификацию и управление server-side сессиями пользователей:
+
+- регистрация пользователя;
 - вход по `username/password`;
-- выдачу `access token` и `refresh token`;
-- server-side хранение состояния сессий;
-- in-memory rate-limit для `/login` и `/refresh`;
-- refresh rotation и reuse detection;
-- отзыв текущей сессии и всех сессий;
-- смену пароля с отзывом всех сессий.
+- выдача пары `access_token + refresh_token`;
+- получение текущего пользователя (`/me`);
+- выход из текущей сессии (`/out`);
+- просмотр активных сессий (`/tokens`);
+- выход со всех устройств (`/out_all`);
+- обновление пары токенов (`/refresh`) с rotation, one-time refresh и reuse detection.
 
-## 2. Что важно понимать
+## 2. Ключевая идея реализации
 
-- `access token` — это JWT, короткоживущий.
-- `refresh token` — это непрозрачная случайная строка (не JWT), одноразовая.
-- В БД **не хранятся raw-токены**.
-- В БД хранятся: `access_jti`, `refresh_hash` и метаданные сессии.
-- Проверка доступа к защищенным маршрутам идет не только по JWT, но и по server-side состоянию сессии в БД.
+Система основана на двух уровнях проверки:
 
-## 2.1 Документация в `docs/`
+1. Проверка JWT (подпись, срок, обязательные claims).
+2. Проверка server-side состояния сессии в БД (`auth_sessions`).
 
-- `docs/DB_SCHEMA.md` — поля таблиц `users` и `auth_sessions`.
-- `docs/AUTH_ENDPOINTS_SCHEMA.md` — схема работы всех endpoint-ов `/api/auth/*`.
+То есть даже валидный JWT перестает работать, если соответствующая сессия в БД отозвана/истекла.
 
-## 3. Архитектура `app/`
+## 3. Архитектура
 
-### 3.1 Дерево `app/`
+### 3.1 Структура `app/`
 
 ```text
 app/
   main.py          # создание FastAPI-приложения, lifespan, подключение роутов
-  db.py            # engine, Base, SessionLocal, get_db
-  config.py        # Settings из .env + валидация конфигурации
+  db.py            # SQLAlchemy engine/session, Base, get_db
+  config.py        # конфигурация из .env + валидация секретов/TTL
   models.py        # ORM-модели User и AuthSession
-  schemas.py       # входные request-схемы (валидация JSON)
-  dto.py           # внутренние и выходные DTO (типизированные объекты)
-  rate_limiter.py  # in-memory лимитер запросов
-  token_service.py # JWT/access и refresh-хеширование (криптография)
-  auth_service.py  # бизнес-логика авторизации и сессий
-  dependencies.py  # FastAPI dependencies (auth/guest/db/service context)
+  schemas.py       # request-схемы и валидация входных данных
+  dto.py           # immutable DTO для входа/выхода
+  token_service.py # выпуск/проверка JWT, hash refresh
+  auth_service.py  # бизнес-логика авторизации и управления сессиями
+  dependencies.py  # auth dependencies, guest-only, pre-validation
   auth_routes.py   # HTTP endpoints /api/auth/*
 ```
 
-### 3.2 Принцип слоев
+### 3.2 Разделение по слоям
 
-- `auth_routes.py` — только HTTP-слой: принимает запрос, вызывает сервис, возвращает ответ.
-- `schemas.py` и `dto.py` — валидация и типизированный обмен данными между слоями.
-- `auth_service.py` — бизнес-логика, транзакции, управление сессиями.
-- `token_service.py` — криптография токенов (JWT access, генерация/хеширование refresh).
-- `dependencies.py` — проверка авторизации и сборка контекста текущего пользователя.
+- `auth_routes.py`: HTTP-слой, принимает запросы и отдает ответы.
+- `schemas.py`: валидация входа (`RegisterRequest`, `LoginRequest`, `RefreshRequest`).
+- `dependencies.py`: проверки доступа, bearer-auth, pre-check уникальности регистрации.
+- `auth_service.py`: доменная логика (сессии, refresh-rotation, revoke).
+- `token_service.py`: криптография токенов.
+- `models.py` + `db.py`: данные и транзакционная работа с БД.
+- `dto.py`: типизированные immutable-объекты ответа/входа между слоями.
 
-### 3.3 Как модули связаны между собой
+### 3.3 Поток вызова
 
 ```text
 HTTP Request
   -> auth_routes.py
-  -> schemas.py (валидация body)
-  -> dependencies.py (Bearer/JWT/server-side session)
-  -> auth_service.py (бизнес-логика)
-  -> token_service.py (создание/проверка токенов, hash refresh)
-  -> models.py + db.py (SQLAlchemy и PostgreSQL)
-  -> dto.py (формирование типизированного ответа)
+  -> schemas.py / dependencies.py
+  -> auth_service.py
+  -> token_service.py
+  -> models.py + db.py
+  -> DTO
   -> HTTP Response
 ```
 
-### 3.4 Что делает каждый файл `app/`
+## 4. Модель данных
 
-`app/main.py`:
-
-- `create_app()` создает FastAPI и кладет `settings` в `app.state`.
-- В `lifespan` вызывается `Base.metadata.create_all(bind=engine)`.
-- `from app import models` нужен для регистрации ORM-моделей в `Base.metadata` перед `create_all`.
-
-`app/db.py`:
-
-- Читает настройки через `get_settings()`.
-- Создает `engine` и `SessionLocal`.
-- `get_db()` выдает SQLAlchemy-сессию на запрос и закрывает ее в `finally`.
-
-`app/config.py`:
-
-- Класс `Settings` читает `.env`.
-- Валидирует `JWT_ALGORITHM`, `REFRESH_TOKEN_PEPPER`, TTL и остальные параметры.
-- Разделяет секреты: `JWT_SECRET` только для подписи JWT, `REFRESH_TOKEN_PEPPER` только для hash refresh.
-
-`app/models.py`:
-
-- `User` хранит профиль и `password_hash`.
-- `AuthSession` хранит server-side состояние сессии.
-- Индексы `uq_users_username_ci` и `uq_users_email_ci` делают уникальность без учета регистра.
-
-`app/schemas.py`:
-
-- Валидирует форму входного JSON для каждого endpoint.
-- Проверяет формат username для `register`, возраст (14+), сложность пароля при `register`/`change-password`, совпадение `password/c_password`.
-- Для `login` применяет те же правила формата, что и в ТЗ: `username` по шаблону и `password` по требованиям сложности.
-- Возвращает DTO через `to_dto()`, чтобы сервис работал уже с валидированными данными.
-
-`app/dto.py`:
-
-- Описывает immutable-объекты (входные и выходные).
-- Нужен как граница между слоями: роут/сервис/ответ говорят в одних типах.
-
-`app/token_service.py`:
-
-- `create_access_token()` генерирует JWT с claim: `sub`, `jti`, `iat`, `exp`, `type=access`.
-- `decode_access_token()` проверяет header, подпись, `exp`, обязательные поля и `type`.
-- `create_refresh_token()` создает случайный непрозрачный токен.
-- `hash_refresh_token()` считает HMAC-SHA256 для хранения в БД.
-
-`app/dependencies.py`:
-
-- `_extract_bearer_token()` строго проверяет формат `Authorization: Bearer <token>`.
-- `get_current_access_payload()` делает JWT-проверки (header + decode).
-- `get_current_user_context()` делает server-side проверку сессии в БД по `access_jti`.
-- `ensure_guest_only()` пускает только гостя на `/register` (если активная сессия есть, вернет `403`).
-
-`app/auth_service.py`:
-
-- Реализует все бизнес-сценарии: register, login, me, logout, refresh, change-password.
-- Управляет транзакциями, revoke-логикой и лимитом сессий.
-- Обрабатывает параллелизм через блокировки БД и единый порядок блокировок.
-
-`app/auth_routes.py`:
-
-- Объявляет endpoint'ы `/api/auth/*`.
-- Забирает `ip` и `user-agent` из `Request`.
-- Перехватывает доменные исключения и мапит их в корректные HTTP-коды.
-
-### 3.5 Жизненный цикл запросов в `app/`
-
-`POST /api/auth/register`:
-
-1. `auth_routes.register` получает `RegisterRequest`.
-2. `schemas.py` проверяет поля (username/password/birthday/c_password).
-3. `dependencies.ensure_guest_only` блокирует вызов, если клиент уже авторизован.
-4. `AuthService.register_user` проверяет дубли username/email без учета регистра.
-5. Пароль хешируется (`bcrypt`), создается запись `users`.
-6. Возвращается `UserDTO` без секретов.
-
-`POST /api/auth/login`:
-
-1. `auth_routes.login` берет body + `ip/user-agent`.
-2. `AuthService.login_user` проверяет логин/пароль.
-3. `_create_session` выдает `access_token` + `refresh_token`.
-4. В `auth_sessions` пишется `access_jti`, `refresh_hash`, сроки, метаданные клиента.
-5. `_enforce_session_limit` отзывает самые старые активные сессии при переполнении.
-6. Роут возвращает `AuthSuccessDTO`.
-
-`GET /api/auth/me`:
-
-1. `dependencies.get_current_access_payload` валидирует JWT.
-2. `dependencies.get_current_user_context` проверяет сессию в БД.
-3. `auth_routes.me` вызывает `AuthService.get_current_user`.
-4. Возвращается `UserDTO`.
-
-`POST /api/auth/refresh`:
-
-1. Клиент отправляет raw refresh token.
-2. `AuthService.refresh_tokens` считает `refresh_hash`.
-3. Находит владельца token и блокирует строки (`users -> auth_sessions`) через `FOR UPDATE`.
-4. Если refresh уже использован/истек/отозван, вызывается revoke всех сессий пользователя.
-5. Если валиден, старая сессия помечается `refresh_used_at` и отзывается (`refresh_rotated`).
-6. Создается новая сессия с тем же `family_id` и новой парой токенов.
-
-`POST /api/auth/out` и `POST /api/auth/out_all`:
-
-1. Через dependency получается `CurrentUserContext`.
-2. `AuthService` отзывает текущую или все сессии.
-3. Возвращается DTO-сообщение.
-
-`POST /api/auth/change-password`:
-
-1. Проверяется access через dependency.
-2. Валидируется `ChangePasswordRequest`.
-3. `AuthService.change_password` сверяет `current_password`.
-4. Обновляет `password_hash`.
-5. Отзывает все активные сессии пользователя.
-
-### 3.6 Жизненный цикл токенов в `app/`
-
-Access token:
-
-- Формат: JWT.
-- Где создается: `TokenService.create_access_token`.
-- Где проверяется: `dependencies.get_current_access_payload`.
-- Когда перестает работать: при истечении `exp` или при revoke server-side сессии.
-
-Refresh token:
-
-- Формат: случайная строка (не JWT).
-- Где создается: `TokenService.create_refresh_token`.
-- Где хранится: на клиенте raw token, на сервере только `refresh_hash`.
-- Одноразовость: каждый успешный refresh делает rotation и отзывает старую сессию.
-- Reuse detection: повторное использование старого refresh => revoke всех сессий пользователя.
-
-### 3.7 Модель server-side сессии (`auth_sessions`)
-
-- `access_jti`: связка access JWT с записью в БД.
-- `refresh_hash`: хеш refresh-токена (raw значение в БД не хранится).
-- `family_id`: объединяет цепочку refresh-rotation одной логической сессии.
-- `refresh_used_at`: признак, что refresh уже был применен.
-- `revoked_at` и `revoked_reason`: причина и время отзыва.
-- `access_expires_at` и `refresh_expires_at`: сроки жизни токенов.
-- `ip` и `user_agent`: метаданные клиента для аудита.
-
-### 3.8 Параллелизм и консистентность в `app/`
-
-- В refresh используется блокировка строки пользователя и сессии (`with_for_update`), чтобы один refresh нельзя было успешно применить дважды параллельно.
-- Лимит активных сессий тоже сериализуется блокировкой строки `User`.
-- В обоих местах соблюдается порядок блокировок `users -> auth_sessions` для снижения риска дедлоков.
-- Коммиты и rollback инкапсулированы в `_commit_or_rollback`.
-
-### 3.9 Где рождаются HTTP ошибки
-
-- `auth_service.py` поднимает доменные исключения (`InvalidCredentialsError`, `RefreshTokenCompromisedError` и т.д.).
-- `auth_routes.py` в `_raise_http_for_auth_error` мапит их в HTTP-коды:
-
-1. `401`: невалидные креды/токены.
-2. `403`: отозванная сессия, компрометация refresh, запрет guest-only.
-3. `404`: пользователь не найден.
-4. `409`: конфликт уникальности.
-5. `422`: ошибки валидации входа и бизнес-валидации `ValueError`.
-6. `503`: ошибки persistence/БД.
-
-## 4. Структура БД
-
-### `users`
+### 4.1 Таблица `users`
 
 - `id`
-- `username` (уникальный без учета регистра)
-- `email` (уникальный без учета регистра)
+- `username`
+- `email`
 - `password_hash`
 - `birthday`
 - `created_at`
 - `updated_at`
 
-### `auth_sessions`
+Особенности:
+
+- `username` и `email` уникальны без учета регистра (индексы на `lower(...)`).
+
+### 4.2 Таблица `auth_sessions`
 
 - `id`
 - `user_id`
 - `family_id`
-- `access_jti` (уникальный)
+- `access_jti`
 - `refresh_hash`
 - `created_at`
 - `last_used_at`
@@ -254,9 +96,142 @@ Refresh token:
 - `ip`
 - `user_agent`
 
-## 5. Конфигурация
+Смысл:
 
-Используются переменные из `.env` (пример в `.env.example`):
+- `access_jti` связывает access JWT с записью сессии.
+- `refresh_hash` хранит только хеш refresh, а не raw token.
+- `revoked_*` и `refresh_used_at` поддерживают revoke/reuse-detection.
+
+## 5. Формат токенов
+
+### 5.1 Access token
+
+`access_token` — JWT с claims:
+
+- `sub` — id пользователя;
+- `jti` — id access-сессии (`access_jti`);
+- `iat`, `exp`;
+- `type=access`.
+
+Использование:
+
+- передается в `Authorization: Bearer <access_token>`;
+- валидируется по подписи и сроку;
+- затем проверяется состояние сессии в БД.
+
+### 5.2 Refresh token
+
+`refresh_token` — JWT с claims:
+
+- `sub` — id пользователя;
+- `access_jti` — привязка к сессии;
+- `jti` — id refresh-токена;
+- `iat`, `exp`;
+- `type=refresh`.
+
+Использование:
+
+- передается в body `/refresh`;
+- в БД хранится только `refresh_hash` (HMAC-SHA256 с `REFRESH_TOKEN_PEPPER`).
+
+## 6. Логика endpoint-ов
+
+Все маршруты под префиксом `/api/auth`.
+
+### 6.1 `POST /register`
+
+- guest-only (если уже есть активная авторизация, вернет `403`);
+- валидация полей запроса;
+- pre-check уникальности `username/email` до сервиса;
+- создание пользователя с `password_hash`.
+
+Успех: `201 UserDTO`.
+
+### 6.2 `POST /login`
+
+- валидация запроса;
+- проверка username/password;
+- создание сессии и выдача `access + refresh`;
+- контроль лимита активных сессий (`MAX_ACTIVE_SESSIONS`): при переполнении отзываются самые старые.
+
+Успех: `200 AuthSuccessDTO`.
+
+### 6.3 `GET /me`
+
+- требует bearer access token;
+- JWT-проверка + server-side проверка сессии;
+- возврат текущего пользователя.
+
+Успех: `200 UserDTO`.
+
+### 6.4 `POST /out`
+
+- требует bearer access token;
+- отзывает текущую сессию по `access_jti`.
+
+Успех: `200 MessageResponseDTO`.
+
+### 6.5 `GET /tokens`
+
+- требует bearer access token;
+- возвращает список активных сессий пользователя без секретных токенов.
+
+Успех: `200 TokenListDTO`.
+
+### 6.6 `POST /out_all`
+
+- требует bearer access token;
+- отзывает все активные сессии пользователя.
+
+Успех: `200 LogoutAllResponseDTO`.
+
+### 6.7 `POST /refresh`
+
+- принимает `refresh_token` в body;
+- проверяет refresh JWT и связку с сессией;
+- выполняет rotation: старая refresh-сессия помечается использованной/отзывается, создается новая сессия и новая пара токенов.
+
+Безопасность в `refresh`:
+
+- `used/revoked/expired/hash_mismatch` -> `revoke all` + `403`.
+- `session not found` по `sub + access_jti` -> `revoke all` + `403`.
+- если подпись/формат refresh невалидны, но токен можно связать с существующей сессией (`sub + access_jti`) -> `revoke all` + `403`.
+- полностью мусорный/несвязываемый токен -> `401`.
+
+## 7. Access control и Swagger UI
+
+### 7.1 Как авторизоваться в Swagger
+
+Защищенные методы: `GET /me`, `POST /out`, `GET /tokens`, `POST /out_all`.
+
+В Swagger используется `HTTPBearer` security scheme:
+
+1. Нажмите `Authorize`.
+2. Вставьте токен в поле авторизации (для UI обычно достаточно самого токена).
+3. Swagger сам отправит `Authorization: Bearer <token>`.
+
+### 7.2 Для curl/postman
+
+Передавайте заголовок явно:
+
+```bash
+-H "Authorization: Bearer <access_token>"
+```
+
+## 8. Ошибки и статусы
+
+Основные коды:
+
+- `200` — успешные операции;
+- `201` — успешная регистрация;
+- `401` — отсутствует/невалиден токен, неверные креды;
+- `403` — revoked/expired сессия, guest-only запрет, компрометация refresh;
+- `422` — ошибки валидации полей (включая дубли `username/email` на регистрации);
+- `503` — временная ошибка БД/сохранения.
+
+## 9. Конфигурация (`.env`)
+
+Используются:
 
 - `POSTGRES_DB`
 - `POSTGRES_USER`
@@ -271,107 +246,43 @@ Refresh token:
 - `ACCESS_TOKEN_TTL_MINUTES`
 - `REFRESH_TOKEN_TTL_MINUTES`
 - `MAX_ACTIVE_SESSIONS`
-- `LOGIN_RATE_LIMIT_MAX_REQUESTS`
-- `LOGIN_RATE_LIMIT_WINDOW_SECONDS`
-- `REFRESH_RATE_LIMIT_MAX_REQUESTS`
-- `REFRESH_RATE_LIMIT_WINDOW_SECONDS`
 
 Важно:
 
-- `JWT_SECRET` — только подпись JWT.
-- `REFRESH_TOKEN_PEPPER` — только хеширование refresh token.
-- `JWT_SECRET` обязателен и должен быть не короче 32 символов.
-- Для `HS256` длина `JWT_SECRET` должна быть не меньше `32` байт.
-- Оба секрета должны быть заданы; использовать одинаковые значения не рекомендуется.
+- `JWT_SECRET` — подпись JWT;
+- `REFRESH_TOKEN_PEPPER` — только для хеширования refresh;
+- `JWT_SECRET` не короче 32 байт;
+- `REFRESH_TOKEN_PEPPER` обязателен и не пустой.
 
-## 6. Запуск
+## 10. Запуск
 
-### 6.1 Через Docker
-
-1. Создать `.env`:
+### 10.1 Docker
 
 ```bash
 cp .env.example .env
-```
-
-2. Запустить:
-
-```bash
 docker compose up --build -d
 ```
-
-3. Открыть:
 
 - API: `http://localhost:8080`
 - Swagger: `http://localhost:8080/docs`
 
-### 6.2 Локально
-
-1. Поднять PostgreSQL.
-2. Заполнить `.env`.
-3. Установить зависимости:
+### 10.2 Локально
 
 ```bash
 pip install -r requirements.txt
-```
-
-4. Запустить:
-
-```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8080
 ```
 
-## 7. API: маршруты и ожидаемые статусы
+## 11. Быстрый smoke-check
 
-Все маршруты под префиксом `/api/auth`.
+1. `POST /api/auth/register` -> `201`.
+2. `POST /api/auth/login` -> получить `access_token` и `refresh_token`.
+3. `GET /api/auth/me` с bearer access -> `200`.
+4. `POST /api/auth/refresh` с refresh -> новая пара токенов.
+5. Повторить refresh старым токеном -> `403` и revoke сессий.
 
-- `POST /register` → `201`
-- `POST /login` → `200`
-- `GET /me` → `200`
-- `POST /out` → `200`
-- `GET /tokens` → `200`
-- `POST /out_all` → `200`
-- `POST /refresh` → `200`
-- `POST /change-password` → `200`
+## 12. Дополнительные документы
 
-Примечания:
-
-- `register` доступен только неавторизованным (guest-only).
-- `me`, `out`, `tokens`, `out_all`, `change-password` — защищенные (Bearer access token).
-- `/tokens` возвращает только метаданные сессий, без реальных токенов.
-
-## 8. Проверка API через Swagger
-
-- Откройте `http://localhost:8080/docs`.
-- Все готовые body и сценарии проверок вынесены в `docs/AUTH_SWAGGER_CHECKS.md`.
-- Для защищенных методов сначала нажмите `Authorize` и вставьте:
-  `Bearer <access_token>`
-
-## 9. Что именно проверяется по безопасности
-
-### Access token
-
-- Bearer-формат заголовка.
-- Наличие и валидность `alg` в JWT header.
-- Проверка подписи.
-- Проверка `exp`.
-- Проверка `type=access`.
-- Проверка server-side состояния сессии по `access_jti`.
-
-### Refresh token
-
-- Генерируется как криптографически случайная строка.
-- В БД хранится только `refresh_hash`.
-- Одноразовый (rotation).
-- Повторное использование/компрометация → revoke all.
-
-### Метаданные клиента
-
-- `IP` валидируется как корректный IPv4/IPv6.
-- `User-Agent` нормализуется: trim, пустое -> `None`, запрет `\r`, `\n`, `\x00`, ограничение длины 512.
-- `IP` и `User-Agent` хранятся только в БД, не в токене.
-
-## 10. Учебные упрощения
-
-- Таблицы создаются на startup через `Base.metadata.create_all(...)`.
-- Rate-limit реализован in-memory и работает в рамках одного процесса приложения.
+- [DB schema](docs/DB_SCHEMA.md)
+- [Auth endpoint schema](docs/AUTH_ENDPOINTS_SCHEMA.md)
+- [Swagger checks](docs/AUTH_SWAGGER_CHECKS.md)

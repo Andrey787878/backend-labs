@@ -1,24 +1,68 @@
-# Проверка API через Swagger
+# Проверка API через Swagger (актуальная)
 
 Откройте `http://localhost:8080/docs`.
 
-Для защищенных методов сначала нажмите `Authorize` и вставьте:
-`Bearer <access_token>`.
+## 1. Как правильно авторизоваться в Swagger
 
-Защищенные методы: `GET /me`, `POST /out`, `GET /tokens`, `POST /out_all`, `POST /change-password`.
-Если не передать `Authorization`, сервер вернет `401` с ошибкой `"Отсутствует заголовок Authorization."`.
+### 1.1 Защищенные методы
 
-## 1. Базовые пользователи для проверки
+Защищенные методы:
+
+- `GET /api/auth/me`
+- `POST /api/auth/out`
+- `GET /api/auth/tokens`
+- `POST /api/auth/out_all`
+
+Для них нужен `access_token` в заголовке `Authorization`.
+
+Правильный способ в Swagger UI:
+
+1. Сначала выполните `POST /api/auth/login` и скопируйте `access_token`.
+2. Нажмите кнопку `Authorize` (замок вверху страницы Swagger).
+3. В поле `HTTPBearer` вставьте **сам JWT токен** (строка вида `eyJ...`), без слова `Bearer`.
+4. Нажмите `Authorize`, потом `Close`.
+5. Выполните защищенный метод.
+
+Проверка, что все ок:
+
+- В блоке `Curl` у защищенного метода должен появиться заголовок:
+  - `-H 'Authorization: Bearer <...>'`
+
+Если этого заголовка нет, сервер вернет `401`.
+
+### 1.2 Важно про тип токена
+
+Для защищенных методов нужен только `access_token`.
+
+Если подставить `refresh_token`, получите ошибку:
+
+```json
+{
+  "detail": "Поле type должно быть равно \"access\"."
+}
+```
+
+### 1.3 Почему у `/register` больше нет поля `Authorization`
+
+`POST /api/auth/register` не является защищенным методом, поэтому поле `Authorization` из Swagger скрыто.
+Это сделано для более понятного UI.
+
+Важно:
+
+- Правило guest-only в API осталось: если отправить валидный access в заголовке `Authorization`, сервер вернет `403`.
+- Просто в Swagger UI это поле не показывается для `/register`; такой кейс удобнее проверять через curl/Postman.
+
+## 2. Базовые пользователи для проверки
 
 `User A`:
 
 ```json
 {
-	"username": "StudentA",
-	"email": "studenta@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#123",
-	"birthday": "2000-05-20"
+  "username": "StudentA",
+  "email": "studenta@example.com",
+  "password": "Strong#123",
+  "c_password": "Strong#123",
+  "birthday": "2000-05-20"
 }
 ```
 
@@ -26,213 +70,137 @@
 
 ```json
 {
-	"username": "StudentB",
-	"email": "studentb@example.com",
-	"password": "Strong#456",
-	"c_password": "Strong#456",
-	"birthday": "1999-08-15"
+  "username": "StudentB",
+  "email": "studentb@example.com",
+  "password": "Strong#456",
+  "c_password": "Strong#456",
+  "birthday": "1999-08-15"
 }
 ```
 
-## 2. `POST /api/auth/register`
+## 3. Проверки endpoint-ов
+
+## 3.1 `POST /api/auth/register`
 
 Успех (`201`): используйте `User A`, затем `User B`.
 
-Ошибка `409` (дубликат):
+Проверка guest-only (`403`) через curl/Postman:
+
+1. Сначала сделайте `POST /api/auth/login` и возьмите `access_token`.
+2. Отправьте `POST /api/auth/register` с заголовком `Authorization: Bearer <access_token>`.
+3. Ожидаемо получите `403`.
+
+Ошибка `422` (дубликат):
 
 ```json
 {
-	"username": "StudentA",
-	"email": "studenta@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#123",
-	"birthday": "2000-05-20"
+  "username": "StudentA",
+  "email": "studenta@example.com",
+  "password": "Strong#123",
+  "c_password": "Strong#123",
+  "birthday": "2000-05-20"
 }
 ```
 
-Ошибка `422` (username не по правилам):
-
-```json
-{
-	"username": "student1",
-	"email": "newuser@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#123",
-	"birthday": "2000-05-20"
-}
-```
-
-Ошибка `422` (слабый пароль):
-
-```json
-{
-	"username": "StudentC",
-	"email": "studentc@example.com",
-	"password": "weakpass",
-	"c_password": "weakpass",
-	"birthday": "2000-05-20"
-}
-```
-
-Ошибка `422` (`c_password` не совпадает):
-
-```json
-{
-	"username": "StudentD",
-	"email": "studentd@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#124",
-	"birthday": "2000-05-20"
-}
-```
-
-Ошибка `422` (неверный формат даты):
-
-```json
-{
-	"username": "StudentE",
-	"email": "studente@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#123",
-	"birthday": "20-05-2000"
-}
-```
-
-Ошибка `422` (возраст < 14):
-
-```json
-{
-	"username": "StudentF",
-	"email": "studentf@example.com",
-	"password": "Strong#123",
-	"c_password": "Strong#123",
-	"birthday": "2015-01-01"
-}
-```
-
-## 3. `POST /api/auth/login`
+## 3.2 `POST /api/auth/login`
 
 Успех (`200`):
 
 ```json
 {
-	"username": "StudentA",
-	"password": "Strong#123"
+  "username": "StudentA",
+  "password": "Strong#123"
 }
 ```
+
+После успеха скопируйте:
+
+- `access_token` -> для `Authorize` и защищенных методов.
+- `refresh_token` -> только для `POST /api/auth/refresh`.
 
 Ошибка `401` (неверный пароль):
 
 ```json
 {
-	"username": "StudentA",
-	"password": "Wrong#123"
+  "username": "StudentA",
+  "password": "Wrong#123"
 }
 ```
 
-Ошибка `401` (неизвестный пользователь):
-
-```json
-{
-	"username": "StudentZ",
-	"password": "Strong#123"
-}
-```
-
-Ошибка `422` (пустой username):
-
-```json
-{
-	"username": "   ",
-	"password": "Strong#123"
-}
-```
-
-Проверка rate-limit (`429`): отправьте неверный логин из одного клиента больше лимита в минуту.
-
-## 4. `POST /api/auth/refresh`
+## 3.3 `POST /api/auth/refresh`
 
 Успех (`200`):
 
 ```json
 {
-	"refresh_token": "<REFRESH_TOKEN_ИЗ_LOGIN>"
+  "refresh_token": "<REFRESH_TOKEN_ИЗ_LOGIN>"
 }
 ```
+
+Важно:
+
+- Токен для `/refresh` отправляется в `body`, не через `Authorize`.
+- После успешного refresh используйте новый `access_token` для защищенных методов.
 
 Ошибка `422` (пустой `refresh_token`):
 
 ```json
 {
-	"refresh_token": "   "
+  "refresh_token": "   "
 }
 ```
 
-Ошибка `401` (случайный токен):
+Ошибка `401` (совсем невалидный токен):
 
 ```json
 {
-	"refresh_token": "not_existing_refresh_token"
+  "refresh_token": "not_existing_refresh_token"
 }
 ```
 
 Ошибка `403` (reuse detection):
 
-1. Логин и сохраните `refresh_1`.
-2. Вызовите `refresh` с `refresh_1` и получите `refresh_2`.
-3. Еще раз вызовите `refresh` с `refresh_1` (старым) -> `403`.
+1. Логин -> получите `refresh_1`.
+2. `POST /refresh` с `refresh_1` -> получите `refresh_2`.
+3. Еще раз отправьте `refresh_1` -> `403`.
 
-## 5. `POST /api/auth/change-password`
+## 3.4 Защищенные методы без body
 
-Перед проверкой этого метода обязательно выполните `POST /api/auth/login`,
-скопируйте `access_token` и вставьте его через кнопку `Authorize`:
-`Bearer <access_token>`.
+Чек-лист:
 
-Успех (`200`):
+1. `GET /api/auth/me` без авторизации -> `401`.
+2. `GET /api/auth/me` с валидным `access_token` -> `200`.
+3. `POST /api/auth/out` с валидным `access_token` -> `200`.
+4. После этого `GET /api/auth/me` тем же token -> `403`.
+5. После этого `GET /api/auth/tokens` тем же token -> `403`.
+6. Сделайте новый `POST /login`, авторизуйтесь новым access -> `GET /api/auth/tokens` -> `200`.
+7. Два логина подряд -> `GET /api/auth/tokens` показывает несколько активных сессий (`200`).
+8. `POST /api/auth/out_all` в одной сессии -> в другой сессии `GET /api/auth/me` -> `403`.
 
-```json
-{
-	"current_password": "Strong#123",
-	"new_password": "NewStrong#123",
-	"c_password": "NewStrong#123"
-}
-```
+## 4. Таблица быстрых причин ошибок
 
-Ошибка `401` (неверный текущий пароль):
+- `401` + `"Отсутствует заголовок Authorization."`
+  - Причина: не нажали `Authorize` или токен не применился.
+  - Проверьте `Curl`: должен быть `Authorization: Bearer ...`.
 
-```json
-{
-	"current_password": "Wrong#123",
-	"new_password": "NewStrong#123",
-	"c_password": "NewStrong#123"
-}
-```
+- `401` + `"Поле type должно быть равно \"access\"."`
+  - Причина: в защищенный метод отправлен refresh token.
+  - Решение: использовать `access_token`.
 
-Ошибка `422` (слабый новый пароль):
+- `403` + `"Текущая сессия отозвана."`
+  - Причина: вы уже сделали `POST /out` или `POST /out_all` этим/связанным токеном.
+  - Решение: новый `POST /login` и новый access.
 
-```json
-{
-	"current_password": "Strong#123",
-	"new_password": "weak",
-	"c_password": "weak"
-}
-```
+- `403` на `/register`
+  - Причина: маршрут guest-only, а вы отправили валидный `Authorization`.
 
-Ошибка `422` (`c_password` не совпадает):
+## 5. Мини-сценарий "точно рабочая проверка"
 
-```json
-{
-	"current_password": "Strong#123",
-	"new_password": "NewStrong#123",
-	"c_password": "NewStrong#124"
-}
-```
-
-## 6. Защищенные методы без body
-
-1. `GET /api/auth/me` без `Authorize` -> `401`.
-2. `GET /api/auth/me` с валидным access -> `200`.
-3. `POST /api/auth/out` с валидным access -> `200`, потом `GET /me` тем же access -> `403`.
-4. Два логина подряд -> `GET /api/auth/tokens` показывает активные сессии (`200`).
-5. `POST /api/auth/out_all` в одной сессии -> в другой сессии `GET /me` -> `403`.
-6. `POST /api/auth/register` с `Authorize` (валидный access) -> `403` (guest-only).
+1. `POST /api/auth/register` (новый пользователь) -> `201`.
+2. `POST /api/auth/login` -> взять `access_token`.
+3. `Authorize` -> вставить `access_token`.
+4. `GET /api/auth/me` -> `200`.
+5. `POST /api/auth/out` -> `200`.
+6. `GET /api/auth/me` тем же access -> `403`.
+7. `POST /api/auth/login` еще раз -> новый access.
+8. `GET /api/auth/tokens` -> `200`.
