@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.dto import AuthSuccessDTO, RegisterInputDTO, TokenListDTO, TokenMetaDTO, UserDTO
 from app.models import AuthSession, User
-from app.token_service import TokenService
+from app.token_service import TokenService, TokenServiceError
 
 
 class AuthServiceError(Exception):
@@ -37,10 +37,6 @@ class InvalidRefreshTokenError(AuthServiceError):
 
 class RefreshTokenCompromisedError(AuthServiceError):
     """Выявлено повторное использование или компрометация refresh token."""
-
-
-class CurrentPasswordMismatchError(AuthServiceError):
-    """Текущий пароль не совпадает с паролем пользователя."""
 
 
 class AuthPersistenceError(AuthServiceError):
@@ -188,37 +184,78 @@ class AuthService:
         if not normalized_refresh_token:
             raise InvalidRefreshTokenError("Refresh token не должен быть пустым.")
 
-        refresh_hash = self._token_service.hash_refresh_token(normalized_refresh_token)
+        try:
+            refresh_payload = self._token_service.decode_refresh_token(
+                normalized_refresh_token,
+                verify_exp=False,
+            )
+        except TokenServiceError as exc:
+            unverified_identity = self._token_service.extract_unverified_refresh_identity(
+                normalized_refresh_token
+            )
+            if unverified_identity is not None:
+                user_id_from_token, access_jti_from_token = unverified_identity
+                locked_user_id = self._db.scalar(
+                    select(User.id).where(User.id == user_id_from_token).with_for_update()
+                )
+                if locked_user_id is not None:
+                    linked_session_id = self._db.scalar(
+                        select(AuthSession.id)
+                        .where(
+                            AuthSession.user_id == user_id_from_token,
+                            AuthSession.access_jti == access_jti_from_token,
+                        )
+                        .with_for_update()
+                    )
+                    if linked_session_id is not None:
+                        now = self._now_utc()
+                        self._revoke_all_user_sessions(
+                            user_id=user_id_from_token,
+                            reason="refresh_invalid_token_detected",
+                            revoked_at=now,
+                        )
+                        self._commit_or_rollback()
+                        raise RefreshTokenCompromisedError(
+                            "Refresh token недействителен или уже использован. "
+                            "Все сессии пользователя отозваны."
+                        ) from exc
 
-        refresh_owner = self._db.execute(
-            select(AuthSession.id, AuthSession.user_id).where(AuthSession.refresh_hash == refresh_hash)
-        ).first()
-        if refresh_owner is None:
-            raise InvalidRefreshTokenError("Refresh token не найден.")
+            raise InvalidRefreshTokenError("Refresh token невалиден.") from exc
 
-        session_id, user_id = refresh_owner
         locked_user_id = self._db.scalar(
-            select(User.id).where(User.id == user_id).with_for_update()
+            select(User.id).where(User.id == refresh_payload.sub).with_for_update()
         )
         if locked_user_id is None:
             raise UserNotFoundError("Пользователь для refresh token не найден.")
 
+        now = self._now_utc()
         session = self._db.scalar(
             select(AuthSession)
             .where(
-                AuthSession.id == session_id,
-                AuthSession.refresh_hash == refresh_hash,
+                AuthSession.user_id == refresh_payload.sub,
+                AuthSession.access_jti == refresh_payload.access_jti,
             )
             .with_for_update()
         )
         if session is None:
-            raise InvalidRefreshTokenError("Refresh token не найден.")
+            self._revoke_all_user_sessions(
+                user_id=refresh_payload.sub,
+                reason="refresh_session_not_found",
+                revoked_at=now,
+            )
+            self._commit_or_rollback()
+            raise RefreshTokenCompromisedError(
+                "Refresh token недействителен или уже использован. Все сессии пользователя отозваны."
+            )
 
-        now = self._now_utc()
+        refresh_hash = self._token_service.hash_refresh_token(normalized_refresh_token)
         if (
+            session.refresh_hash != refresh_hash
+            or
             session.revoked_at is not None
             or session.refresh_used_at is not None
             or session.refresh_expires_at <= now
+            or refresh_payload.exp <= now
         ):
             # Повторное использование refresh token = отзыв сессий
             self._revoke_all_user_sessions(
@@ -258,21 +295,6 @@ class AuthService:
             user=self._to_user_dto(user),
         )
 
-    def change_password(self, user_id: int, current_password: str, new_password: str) -> str:
-        user = self._db.get(User, user_id)
-        if user is None:
-            raise UserNotFoundError("Пользователь не найден.")
-
-        if not self._password_context.verify(current_password, user.password_hash):
-            raise CurrentPasswordMismatchError("Текущий пароль указан неверно.")
-
-        user.password_hash = self._password_context.hash(new_password)
-
-        self._revoke_all_user_sessions(user_id=user_id, reason="password_changed")
-        self._commit_or_rollback()
-
-        return "Пароль успешно изменен. Все активные сессии отозваны."
-
     def _create_session(
         self,
         user: User,
@@ -288,7 +310,10 @@ class AuthService:
         access_token = self._token_service.create_access_token(user_id=user.id, jti=access_jti)
         access_payload = self._token_service.decode_access_token(access_token)
 
-        refresh_token = self._token_service.create_refresh_token()
+        refresh_token = self._token_service.create_refresh_token(
+            user_id=user.id,
+            access_jti=access_jti,
+        )
         refresh_hash = self._token_service.hash_refresh_token(refresh_token)
         refresh_expires_at = now + timedelta(minutes=self._settings.refresh_token_ttl_minutes)
         validated_ip = self._validate_ip(ip)
