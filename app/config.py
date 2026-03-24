@@ -55,27 +55,6 @@ class Settings(BaseSettings):
         ge=1,
     )
 
-    login_rate_limit_max_requests: int = Field(
-        default=5,
-        alias="LOGIN_RATE_LIMIT_MAX_REQUESTS",
-        ge=1,
-    )
-    login_rate_limit_window_seconds: int = Field(
-        default=60,
-        alias="LOGIN_RATE_LIMIT_WINDOW_SECONDS",
-        ge=1,
-    )
-    refresh_rate_limit_max_requests: int = Field(
-        default=10,
-        alias="REFRESH_RATE_LIMIT_MAX_REQUESTS",
-        ge=1,
-    )
-    refresh_rate_limit_window_seconds: int = Field(
-        default=60,
-        alias="REFRESH_RATE_LIMIT_WINDOW_SECONDS",
-        ge=1,
-    )
-
     @field_validator("refresh_token_pepper", mode="before")
     @classmethod
     def parse_refresh_token_pepper(cls, raw_value: Any) -> str | None:
