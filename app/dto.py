@@ -31,15 +31,6 @@ class RefreshInputDTO(BaseModel):
     refresh_token: str
 
 
-class ChangePasswordInputDTO(BaseModel):
-    """Входные данные для смены пароля."""
-
-    model_config = ConfigDict(frozen=True)
-
-    current_password: str
-    new_password: str
-
-
 class UserDTO(BaseModel):
     """Публичные данные пользователя."""
 

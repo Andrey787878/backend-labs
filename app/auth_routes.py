@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from typing import NoReturn, TypeVar
 
@@ -11,19 +10,18 @@ from app.auth_service import (
     AuthService,
     AuthPersistenceError,
     AuthServiceError,
-    CurrentPasswordMismatchError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     RefreshTokenCompromisedError,
     UserAlreadyExistsError,
     UserNotFoundError,
 )
-from app.config import get_settings
 from app.dependencies import (
     CurrentUserContext,
     ensure_guest_only,
     get_auth_service,
     get_current_user_context,
+    validate_register_request_unique,
 )
 from app.dto import (
     AuthSuccessDTO,
@@ -32,13 +30,11 @@ from app.dto import (
     TokenListDTO,
     UserDTO,
 )
-from app.schemas import ChangePasswordRequest, LoginRequest, RefreshRequest, RegisterRequest
+from app.schemas import LoginRequest, RefreshRequest, RegisterRequest
 from app.token_service import TokenServiceError
-from app.rate_limiter import InMemorySlidingWindowRateLimiter
 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-_RATE_LIMITER = InMemorySlidingWindowRateLimiter()
 _ResultT = TypeVar("_ResultT")
 
 
@@ -49,8 +45,6 @@ def _raise_http_for_auth_error(
     if isinstance(error, UserAlreadyExistsError):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
     if isinstance(error, InvalidCredentialsError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error))
-    if isinstance(error, CurrentPasswordMismatchError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error))
     if isinstance(error, InvalidRefreshTokenError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error))
@@ -88,31 +82,6 @@ def _call_auth(fn: Callable[[], _ResultT]) -> _ResultT:
         _raise_http_for_auth_error(exc)
 
 
-def _enforce_auth_rate_limit(
-    request: Request,
-    key_prefix: str,
-    max_requests: int,
-    window_seconds: int,
-) -> None:
-    """Ограничивает частоту запросов на auth-эндпоинты по IP клиента."""
-    client_ip = request.client.host if request.client else "unknown"
-    rate_key = f"{key_prefix}:{client_ip}"
-    allowed, retry_after_seconds = _RATE_LIMITER.allow(
-        key=rate_key,
-        max_requests=max_requests,
-        window_seconds=window_seconds,
-    )
-    if allowed:
-        return
-
-    retry_after = max(1, math.ceil(retry_after_seconds))
-    raise HTTPException(
-        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-        detail="Слишком много попыток. Повторите позже.",
-        headers={"Retry-After": str(retry_after)},
-    )
-
-
 @router.post(
     "/register",
     response_model=UserDTO,
@@ -120,7 +89,7 @@ def _enforce_auth_rate_limit(
     dependencies=[Depends(ensure_guest_only)],
 )
 def register(
-    payload: RegisterRequest,
+    payload: RegisterRequest = Depends(validate_register_request_unique),
     auth_service: AuthService = Depends(get_auth_service),
 ) -> UserDTO:
     """Регистрирует нового пользователя."""
@@ -134,13 +103,6 @@ def login(
     auth_service: AuthService = Depends(get_auth_service),
 ) -> AuthSuccessDTO:
     """Аутентифицирует пользователя и выдает access/refresh токены."""
-    settings = get_settings()
-    _enforce_auth_rate_limit(
-        request=request,
-        key_prefix="login",
-        max_requests=settings.login_rate_limit_max_requests,
-        window_seconds=settings.login_rate_limit_window_seconds,
-    )
     ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
 
@@ -212,13 +174,6 @@ def refresh(
     auth_service: AuthService = Depends(get_auth_service),
 ) -> AuthSuccessDTO:
     """Выполняет refresh-rotation и выдает новую пару токенов."""
-    settings = get_settings()
-    _enforce_auth_rate_limit(
-        request=request,
-        key_prefix="refresh",
-        max_requests=settings.refresh_rate_limit_max_requests,
-        window_seconds=settings.refresh_rate_limit_window_seconds,
-    )
     ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
 
@@ -230,26 +185,3 @@ def refresh(
             user_agent=user_agent,
         )
     )
-
-
-@router.post(
-    "/change-password",
-    response_model=MessageResponseDTO,
-    status_code=status.HTTP_200_OK,
-)
-def change_password(
-    payload: ChangePasswordRequest,
-    context: CurrentUserContext = Depends(get_current_user_context),
-    auth_service: AuthService = Depends(get_auth_service),
-) -> MessageResponseDTO:
-    """Меняет пароль пользователя и отзывает его текущие сессии."""
-    data = payload.to_dto()
-    message = _call_auth(
-        lambda: auth_service.change_password(
-            user_id=context.user_id,
-            current_password=data.current_password,
-            new_password=data.new_password,
-        )
-    )
-
-    return MessageResponseDTO(message=message)

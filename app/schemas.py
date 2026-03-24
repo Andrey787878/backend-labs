@@ -5,7 +5,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.dto import (
-    ChangePasswordInputDTO,
     LoginInputDTO,
     RefreshInputDTO,
     RegisterInputDTO,
@@ -140,30 +139,3 @@ class RefreshRequest(BaseModel):
 
     def to_dto(self) -> RefreshInputDTO:
         return RefreshInputDTO(refresh_token=self.refresh_token)
-
-
-class ChangePasswordRequest(BaseModel):
-    """Изменение пароля"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    current_password: str = Field(..., min_length=8, max_length=128)
-    new_password: str = Field(..., min_length=8, max_length=128)
-    c_password: str = Field(..., min_length=8, max_length=128)
-
-    @field_validator("new_password")
-    @classmethod
-    def validate_new_password(cls, value: str) -> str:
-        return _validate_password_complexity(value)
-
-    @model_validator(mode="after")
-    def validate_password_match(self) -> "ChangePasswordRequest":
-        if self.new_password != self.c_password:
-            raise ValueError("c_password должен совпадать с new_password.")
-        return self
-
-    def to_dto(self) -> ChangePasswordInputDTO:
-        return ChangePasswordInputDTO(
-            current_password=self.current_password,
-            new_password=self.new_password,
-        )

@@ -3,14 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy import select
+from fastapi import Depends, HTTPException, Request, Security, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.auth_service import AuthService
 from app.db import get_db
-from app.models import AuthSession
+from app.models import AuthSession, User
+from app.schemas import RegisterRequest
 from app.token_service import (
     AccessTokenPayload,
     TokenDecodeError,
@@ -27,6 +29,9 @@ class CurrentUserContext:
     payload: AccessTokenPayload
 
 
+_HTTP_BEARER = HTTPBearer(auto_error=False)
+
+
 def get_token_service() -> TokenService:
     return TokenService()
 
@@ -38,11 +43,59 @@ def get_auth_service(
     return AuthService(db=db, token_service=token_service)
 
 
+def validate_register_request_unique(
+    payload: RegisterRequest,
+    db: Session = Depends(get_db),
+) -> RegisterRequest:
+    """Проверяет уникальность username/email до вызова сервиса регистрации."""
+    username = payload.username.strip()
+    email = payload.email.strip()
+    errors: list[dict[str, object]] = []
+
+    try:
+        username_exists = (
+            db.scalar(select(User.id).where(func.lower(User.username) == username.lower())) is not None
+        )
+        if username_exists:
+            errors.append(
+                {
+                    "type": "value_error",
+                    "loc": ["body", "username"],
+                    "msg": "username уже используется.",
+                    "input": payload.username,
+                }
+            )
+
+        email_exists = (
+            db.scalar(select(User.id).where(func.lower(User.email) == email.lower())) is not None
+        )
+        if email_exists:
+            errors.append(
+                {
+                    "type": "value_error",
+                    "loc": ["body", "email"],
+                    "msg": "email уже используется.",
+                    "input": payload.email,
+                }
+            )
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Временная ошибка доступа к данным. Повторите попытку позже.",
+        ) from exc
+
+    if errors:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=errors)
+
+    return payload
+
+
 def ensure_guest_only(
-    authorization: str | None = Header(default=None, alias="Authorization"),
+    request: Request,
     token_service: TokenService = Depends(get_token_service),
     db: Session = Depends(get_db),
 ) -> None:
+    authorization = request.headers.get("Authorization")
     if authorization is None or not authorization.strip():
         return
 
@@ -77,32 +130,33 @@ def ensure_guest_only(
     )
 
 
-def _extract_bearer_token(authorization: str | None) -> str:
-    """Извлекает токен из заголовка Authorization в формате Bearer."""
-    if authorization is None or not authorization.strip():
+def _extract_bearer_token(
+    credentials: HTTPAuthorizationCredentials | None,
+) -> str:
+    """Извлекает Bearer token из security credentials."""
+    if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Отсутствует заголовок Authorization.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    scheme, _, token = authorization.strip().partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
+    if credentials.scheme.lower() != "bearer" or not credentials.credentials.strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Ожидается формат Authorization: Bearer <token>.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return token.strip()
+    return credentials.credentials.strip()
 
 
 def get_current_access_payload(
-    authorization: str | None = Header(default=None, alias="Authorization"),
+    credentials: HTTPAuthorizationCredentials | None = Security(_HTTP_BEARER),
     token_service: TokenService = Depends(get_token_service),
 ) -> AccessTokenPayload:
     """Проверяет Bearer access token и возвращает декодированный payload."""
-    token = _extract_bearer_token(authorization)
+    token = _extract_bearer_token(credentials)
 
     try:
         header = token_service.parse_jwt_header(token)
