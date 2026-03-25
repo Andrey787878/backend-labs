@@ -38,19 +38,9 @@
 
 ```json
 {
-  "detail": "Поле type должно быть равно \"access\"."
+	"detail": "Поле type должно быть равно \"access\"."
 }
 ```
-
-### 1.3 Почему у `/register` больше нет поля `Authorization`
-
-`POST /api/auth/register` не является защищенным методом, поэтому поле `Authorization` из Swagger скрыто.
-Это сделано для более понятного UI.
-
-Важно:
-
-- Правило guest-only в API осталось: если отправить валидный access в заголовке `Authorization`, сервер вернет `403`.
-- Просто в Swagger UI это поле не показывается для `/register`; такой кейс удобнее проверять через curl/Postman.
 
 ## 2. Базовые пользователи для проверки
 
@@ -58,11 +48,11 @@
 
 ```json
 {
-  "username": "StudentA",
-  "email": "studenta@example.com",
-  "password": "Strong#123",
-  "c_password": "Strong#123",
-  "birthday": "2000-05-20"
+	"username": "StudentA",
+	"email": "studenta@example.com",
+	"password": "Strong#123",
+	"c_password": "Strong#123",
+	"birthday": "2000-05-20"
 }
 ```
 
@@ -70,11 +60,11 @@
 
 ```json
 {
-  "username": "StudentB",
-  "email": "studentb@example.com",
-  "password": "Strong#456",
-  "c_password": "Strong#456",
-  "birthday": "1999-08-15"
+	"username": "StudentB",
+	"email": "studentb@example.com",
+	"password": "Strong#456",
+	"c_password": "Strong#456",
+	"birthday": "1999-08-15"
 }
 ```
 
@@ -94,11 +84,11 @@
 
 ```json
 {
-  "username": "StudentA",
-  "email": "studenta@example.com",
-  "password": "Strong#123",
-  "c_password": "Strong#123",
-  "birthday": "2000-05-20"
+	"username": "StudentA",
+	"email": "studenta@example.com",
+	"password": "Strong#123",
+	"c_password": "Strong#123",
+	"birthday": "2000-05-20"
 }
 ```
 
@@ -108,8 +98,8 @@
 
 ```json
 {
-  "username": "StudentA",
-  "password": "Strong#123"
+	"username": "StudentA",
+	"password": "Strong#123"
 }
 ```
 
@@ -122,8 +112,8 @@
 
 ```json
 {
-  "username": "StudentA",
-  "password": "Wrong#123"
+	"username": "StudentA",
+	"password": "Wrong#123"
 }
 ```
 
@@ -133,7 +123,7 @@
 
 ```json
 {
-  "refresh_token": "<REFRESH_TOKEN_ИЗ_LOGIN>"
+	"refresh_token": "<REFRESH_TOKEN_ИЗ_LOGIN>"
 }
 ```
 
@@ -146,7 +136,7 @@
 
 ```json
 {
-  "refresh_token": "   "
+	"refresh_token": "   "
 }
 ```
 
@@ -154,7 +144,7 @@
 
 ```json
 {
-  "refresh_token": "not_existing_refresh_token"
+	"refresh_token": "not_existing_refresh_token"
 }
 ```
 
