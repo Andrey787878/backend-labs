@@ -15,6 +15,10 @@ services:
         - action: rebuild
           path: ./app
         - action: rebuild
+          path: ./alembic
+        - action: rebuild
+          path: ./alembic.ini
+        - action: rebuild
           path: ./requirements.txt
         - action: rebuild
           path: ./Dockerfile

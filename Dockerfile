@@ -23,6 +23,8 @@ RUN groupadd --gid 1000 app && \
 
 COPY --from=deps /deps /deps
 COPY --chown=1000:1000 app /app/app
+COPY --chown=1000:1000 alembic /app/alembic
+COPY --chown=1000:1000 alembic.ini /app/alembic.ini
 
 USER 1000:1000
 
