@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.auth_service import AuthService
 from app.db import get_db
-from app.models import AuthSession, User
+from app.models import AuthSession, Permission, PermissionRole, Role, User, UserRole
+from app.rbac_service import RbacService
 from app.schemas import RegisterRequest
 from app.token_service import (
     AccessTokenPayload,
@@ -29,6 +30,14 @@ class CurrentUserContext:
     payload: AccessTokenPayload
 
 
+class PermissionDeniedError(Exception):
+    """Исключение отказа в доступе по RBAC-permission."""
+
+    def __init__(self, permission_slug: str) -> None:
+        self.permission_slug = permission_slug
+        super().__init__(f"Access denied. Required permission: {permission_slug}")
+
+
 _HTTP_BEARER = HTTPBearer(auto_error=False)
 
 
@@ -41,6 +50,11 @@ def get_auth_service(
     token_service: TokenService = Depends(get_token_service),
 ) -> AuthService:
     return AuthService(db=db, token_service=token_service)
+
+
+def get_rbac_service(db: Session = Depends(get_db)) -> RbacService:
+    """Создаёт RBAC-сервис в рамках текущей DB-сессии запроса."""
+    return RbacService(db=db)
 
 
 def validate_register_request_unique(
@@ -215,3 +229,40 @@ def get_current_user_context(
         session_id=session.id,
         payload=payload,
     )
+
+
+def require_permission(permission_slug: str):
+    """Фабрика dependency для проверки RBAC-permission по slug."""
+
+    def _dependency(
+        context: CurrentUserContext = Depends(get_current_user_context),
+        db: Session = Depends(get_db),
+    ) -> None:
+        stmt = (
+            select(Permission.id)
+            .join(PermissionRole, PermissionRole.permission_id == Permission.id)
+            .join(Role, Role.id == PermissionRole.role_id)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(
+                UserRole.user_id == context.user_id,
+                UserRole.deleted_at.is_(None),
+                Role.deleted_at.is_(None),
+                PermissionRole.deleted_at.is_(None),
+                Permission.deleted_at.is_(None),
+                func.lower(Permission.slug) == permission_slug.lower(),
+            )
+            .limit(1)
+        )
+
+        try:
+            has_permission = db.scalar(stmt) is not None
+        except SQLAlchemyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Временная ошибка доступа к данным. Повторите попытку позже.",
+            ) from exc
+
+        if not has_permission:
+            raise PermissionDeniedError(permission_slug=permission_slug)
+
+    return _dependency
