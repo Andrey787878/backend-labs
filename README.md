@@ -1,4 +1,33 @@
-# Лабораторная работа №2: Авторизация (FastAPI + PostgreSQL)
+# Лабораторные работы №2 и №3 (FastAPI + PostgreSQL)
+
+## Разделение По Лабам
+
+### ЛР2 — Авторизация (`/api/auth/*`)
+
+- `app/auth_routes.py`
+- `app/auth_service.py`
+- `app/token_service.py`
+- `app/dependencies.py` (auth dependencies)
+- `app/models.py`:
+  `User`, `AuthSession`
+- `app/schemas.py`:
+  `LoginRequest`, `RegisterRequest`, `RefreshRequest`
+- `app/dto.py`:
+  auth/session DTO
+
+### ЛР3 — RBAC (data layer + DTO/schemas + migrations)
+
+- `app/models.py`:
+  `Role`, `Permission`, `UserRole`, `PermissionRole`
+- `app/schemas.py`:
+  `StoreRoleRequest`, `UpdateRoleRequest`, `StorePermissionRequest`, `UpdatePermissionRequest`,
+  `AttachUserRoleRequest`, `AttachRolePermissionRequest`
+- `app/dto.py`:
+  `RoleDTO`, `RoleCollectionDTO`, `PermissionDTO`, `PermissionCollectionDTO` и связанные write DTO
+- `alembic/*` и `alembic.ini`:
+  миграции и базовый seed для RBAC
+
+## ЛР2: Авторизация
 
 ## 1. Кратко о проекте
 
@@ -256,6 +285,20 @@ HTTP Request
 
 ## 10. Запуск
 
+### 10.0 Применение миграций
+
+Для Docker Compose (рекомендуется):
+
+```bash
+docker compose exec api python -m alembic -c /app/alembic.ini upgrade head
+```
+
+Для локального запуска (без Docker):
+
+```bash
+alembic upgrade head
+```
+
 ### 10.1 Docker
 
 ```bash
@@ -284,5 +327,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080
 ## 12. Дополнительные документы
 
 - [DB schema](docs/DB_SCHEMA.md)
+- [RBAC DB schema (ЛР3)](docs/RBAC_DB_SCHEMA.md)
 - [Auth endpoint schema](docs/AUTH_ENDPOINTS_SCHEMA.md)
+- [RBAC endpoint schema (ЛР3)](docs/RBAC_ENDPOINTS_SCHEMA.md)
 - [Swagger checks](docs/AUTH_SWAGGER_CHECKS.md)
+- [RBAC Swagger checks (ЛР3)](docs/RBAC_SWAGGER_CHECKS.md)
+- [RBAC Defense QA (ЛР3)](docs/RBAC_DEFENSE_QA.md)
