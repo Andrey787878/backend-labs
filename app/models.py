@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text, and_, func
+from sqlalchemy import BigInteger, JSON, Date, DateTime, ForeignKey, Index, String, Text, and_, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -28,6 +29,12 @@ class User(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     __table_args__ = (
         Index("uq_users_username_ci", func.lower(username), unique=True),
@@ -37,6 +44,10 @@ class User(Base):
     sessions: Mapped[list[AuthSession]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+    change_logs: Mapped[list[ChangeLog]] = relationship(
+        back_populates="user",
+        foreign_keys="ChangeLog.created_by",
     )
     user_roles: Mapped[list[UserRole]] = relationship(
         back_populates="user",
@@ -292,4 +303,30 @@ class PermissionRole(Base):
         back_populates="permission_roles",
         foreign_keys=[permission_id],
         overlaps="roles,permissions",
+    )
+
+
+# ==================== ЛР4: Аудит-лог ====================
+class ChangeLog(Base):
+    __tablename__ = "change_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    entity_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    before: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    after: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    created_by: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    user: Mapped[User] = relationship(
+        back_populates="change_logs",
+        foreign_keys=[created_by],
     )

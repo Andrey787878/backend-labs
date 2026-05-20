@@ -12,6 +12,7 @@ from app.dto import (
     PermissionWriteDTO,
     RefreshInputDTO,
     RegisterInputDTO,
+    UserUpdateDTO,
     RoleUpdateDTO,
     RoleWriteDTO,
 )
@@ -353,3 +354,50 @@ class AttachRolePermissionRequest(BaseModel):
 
     def to_dto(self) -> AttachRolePermissionDTO:
         return AttachRolePermissionDTO(permission_id=self.permission_id)
+
+
+class UpdateUserRequest(BaseModel):
+    """Админский запрос на частичное обновление пользователя."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: str | None = Field(default=None, min_length=7, max_length=64)
+    email: EmailStr | None = None
+    birthday: date | None = None
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validate_username(value)
+
+    @field_validator("birthday", mode="before")
+    @classmethod
+    def validate_birthday_format(cls, value: Any) -> Any:
+        if isinstance(value, str) and not BIRTHDAY_FORMAT_REGEX.fullmatch(value):
+            raise ValueError("birthday должен быть в формате YYYY-MM-DD.")
+        return value
+
+    @field_validator("birthday")
+    @classmethod
+    def validate_birthday_age(cls, value: date | None) -> date | None:
+        if value is None:
+            return None
+        return _validate_min_age_14(value)
+
+    @model_validator(mode="after")
+    def validate_not_empty_payload(self) -> "UpdateUserRequest":
+        if not self.model_fields_set:
+            raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
+        return self
+
+    def to_dto(self) -> UserUpdateDTO:
+        return UserUpdateDTO(
+            username=self.username,
+            email=self.email,
+            birthday=self.birthday,
+            has_username="username" in self.model_fields_set,
+            has_email="email" in self.model_fields_set,
+            has_birthday="birthday" in self.model_fields_set,
+        )

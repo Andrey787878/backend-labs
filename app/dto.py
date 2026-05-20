@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -95,6 +96,19 @@ class AttachRolePermissionDTO(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     permission_id: int
+
+
+class UserUpdateDTO(BaseModel):
+    """Входные данные для частичного обновления пользователя администратором."""
+
+    model_config = ConfigDict(frozen=True)
+
+    username: str | None = None
+    email: str | None = None
+    birthday: date | None = None
+    has_username: bool = False
+    has_email: bool = False
+    has_birthday: bool = False
 
 
 class RoleDTO(BaseModel):
@@ -198,6 +212,38 @@ class MessageResponseDTO(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     message: str
+
+
+# ==================== ЛР4: Audit DTO ====================
+class ChangedFieldDTO(BaseModel):
+    """Измененное поле в истории мутаций."""
+
+    model_config = ConfigDict(frozen=True)
+
+    old: Any = None
+    new: Any = None
+
+
+class ChangeLogDTO(BaseModel):
+    """DTO одной записи истории изменений."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    entity_type: str
+    entity_id: int
+    changed_fields: dict[str, ChangedFieldDTO]
+    created_at: datetime
+    created_by: int
+
+
+class ChangeLogCollectionDTO(BaseModel):
+    """DTO коллекции истории изменений."""
+
+    model_config = ConfigDict(frozen=True)
+
+    items: list[ChangeLogDTO]
+    total: int = Field(ge=0)
 
 
 class LogoutAllResponseDTO(BaseModel):

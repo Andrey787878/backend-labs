@@ -9,6 +9,7 @@ class PermissionSlugs:
     UPDATE_USER = "update-user"
     DELETE_USER = "delete-user"
     RESTORE_USER = "restore-user"
+    GET_STORY_USER = "get-story-user"
 
     GET_LIST_ROLE = "get-list-role"
     READ_ROLE = "read-role"
@@ -16,6 +17,7 @@ class PermissionSlugs:
     UPDATE_ROLE = "update-role"
     DELETE_ROLE = "delete-role"
     RESTORE_ROLE = "restore-role"
+    GET_STORY_ROLE = "get-story-role"
 
     GET_LIST_PERMISSION = "get-list-permission"
     READ_PERMISSION = "read-permission"
@@ -23,3 +25,4 @@ class PermissionSlugs:
     UPDATE_PERMISSION = "update-permission"
     DELETE_PERMISSION = "delete-permission"
     RESTORE_PERMISSION = "restore-permission"
+    GET_STORY_PERMISSION = "get-story-permission"
