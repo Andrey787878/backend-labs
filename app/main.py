@@ -4,6 +4,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app import models
+from app.audit_events import register_audit_event_listeners
+from app.audit_routes import router as audit_router
 from app.auth_routes import router as auth_router
 from app.config import get_settings
 from app.dependencies import PermissionDeniedError
@@ -20,9 +22,11 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(lifespan=lifespan)
     app.state.settings = settings
+    register_audit_event_listeners()
     app.add_exception_handler(PermissionDeniedError, _permission_denied_handler)
     app.include_router(auth_router)
     app.include_router(rbac_router)
+    app.include_router(audit_router)
 
     return app
 
