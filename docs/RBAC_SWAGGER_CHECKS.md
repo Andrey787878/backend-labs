@@ -1,5 +1,7 @@
 # Проверка RBAC API через Swagger (ЛР3)
 
+Проверка ЛР4 вынесена в `docs/LR4_SWAGGER_CHECKS.md`.
+
 Откройте `http://localhost:8080/docs`.
 
 ## 1. Подготовка перед проверкой

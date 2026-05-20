@@ -1,5 +1,7 @@
 # Схема работы endpoint-ов `/api/ref/*` (ЛР3: RBAC)
 
+Для ЛР4 (audit logging и undo) см. `docs/LR4_ENDPOINTS_SCHEMA.md`.
+
 ## 1) Общие правила
 
 - Все маршруты ЛР3 имеют префикс `/api/ref`.

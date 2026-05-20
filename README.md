@@ -27,6 +27,27 @@
 - `alembic/*` и `alembic.ini`:
   миграции и базовый seed для RBAC
 
+### ЛР4 — Audit Logging + Undo
+
+- `app/models.py`:
+  `ChangeLog` + soft-delete поля пользователя
+- `app/audit_context.py`:
+  привязка `actor_user_id` к DB-сессии на время мутаций
+- `app/audit_events.py`:
+  автоматическое логирование create/update/delete (`User`, `Role`, `Permission`)
+- `app/audit_service.py`:
+  история изменений (`story`) и откат состояния (`undo`)
+- `app/audit_routes.py`:
+  endpoints истории и восстановления по `change_log`
+- `app/rbac_service.py`, `app/rbac_routes.py`:
+  добавленные admin-операции `PATCH/DELETE/RESTORE` для `User`
+- `alembic/versions/20260520_0003_add_change_logs_and_user_soft_delete.py`:
+  таблица `change_logs` + soft-delete колонки `users`
+- `alembic/versions/20260520_0004_seed_story_permissions.py`:
+  `get-story-*` permissions и назначение `admin`
+- `docs/LR4_ENDPOINTS_SCHEMA.md`, `docs/LR4_SWAGGER_CHECKS.md`, `docs/LR4_DEFENSE_QA.md`:
+  документация для проверки и защиты
+
 ## ЛР2: Авторизация
 
 ## 1. Кратко о проекте
