@@ -33,6 +33,7 @@ from app.schemas import (
     AttachUserRoleRequest,
     StorePermissionRequest,
     StoreRoleRequest,
+    UpdateUserRequest,
     UpdatePermissionRequest,
     UpdateRoleRequest,
 )
@@ -91,6 +92,110 @@ def list_users(
 ) -> list[UserDTO]:
     """Возвращает список пользователей."""
     return _call_rbac(rbac_service.list_users)
+
+
+@router.get(
+    "/user/{user_id}",
+    summary="Получить пользователя по ID",
+    response_model=UserDTO,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission(PermissionSlugs.READ_USER))],
+)
+def get_user(
+    user_id: int,
+    rbac_service: RbacService = Depends(get_rbac_service),
+) -> UserDTO:
+    """Возвращает пользователя по id."""
+    return _call_rbac(lambda: rbac_service.get_user(user_id=user_id))
+
+
+@router.patch(
+    "/user/{user_id}",
+    summary="Частично обновить пользователя (PATCH)",
+    response_model=UserDTO,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission(PermissionSlugs.UPDATE_USER))],
+)
+def update_user_patch(
+    user_id: int,
+    payload: UpdateUserRequest,
+    context: CurrentUserContext = Depends(get_current_user_context),
+    rbac_service: RbacService = Depends(get_rbac_service),
+) -> UserDTO:
+    """Частично обновляет пользователя."""
+    return _call_rbac(
+        lambda: rbac_service.update_user_patch(
+            user_id=user_id,
+            data=payload.to_dto(),
+            actor_user_id=context.user_id,
+        )
+    )
+
+
+@router.delete(
+    "/user/{user_id}",
+    summary="Удалить пользователя (hard)",
+    response_model=MessageResponseDTO,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission(PermissionSlugs.DELETE_USER))],
+)
+def hard_delete_user(
+    user_id: int,
+    context: CurrentUserContext = Depends(get_current_user_context),
+    rbac_service: RbacService = Depends(get_rbac_service),
+) -> MessageResponseDTO:
+    """Физически удаляет пользователя."""
+    _call_rbac(
+        lambda: rbac_service.hard_delete_user(
+            user_id=user_id,
+            actor_user_id=context.user_id,
+        )
+    )
+    return MessageResponseDTO(message="Пользователь удален.")
+
+
+@router.delete(
+    "/user/{user_id}/soft",
+    summary="Мягко удалить пользователя",
+    response_model=MessageResponseDTO,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission(PermissionSlugs.DELETE_USER))],
+)
+def soft_delete_user(
+    user_id: int,
+    context: CurrentUserContext = Depends(get_current_user_context),
+    rbac_service: RbacService = Depends(get_rbac_service),
+) -> MessageResponseDTO:
+    """Мягко удаляет пользователя."""
+    _call_rbac(
+        lambda: rbac_service.soft_delete_user(
+            user_id=user_id,
+            actor_user_id=context.user_id,
+        )
+    )
+    return MessageResponseDTO(message="Пользователь мягко удален.")
+
+
+@router.post(
+    "/user/{user_id}/restore",
+    summary="Восстановить пользователя",
+    response_model=MessageResponseDTO,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission(PermissionSlugs.RESTORE_USER))],
+)
+def restore_user(
+    user_id: int,
+    context: CurrentUserContext = Depends(get_current_user_context),
+    rbac_service: RbacService = Depends(get_rbac_service),
+) -> MessageResponseDTO:
+    """Восстанавливает мягко удалённого пользователя."""
+    _call_rbac(
+        lambda: rbac_service.restore_user(
+            user_id=user_id,
+            actor_user_id=context.user_id,
+        )
+    )
+    return MessageResponseDTO(message="Пользователь восстановлен.")
 
 
 @router.get(
@@ -295,10 +400,16 @@ def update_role_patch(
 )
 def hard_delete_role(
     role_id: int,
+    context: CurrentUserContext = Depends(get_current_user_context),
     rbac_service: RbacService = Depends(get_rbac_service),
 ) -> MessageResponseDTO:
     """Физически удаляет роль."""
-    _call_rbac(lambda: rbac_service.hard_delete_role(role_id=role_id))
+    _call_rbac(
+        lambda: rbac_service.hard_delete_role(
+            role_id=role_id,
+            actor_user_id=context.user_id,
+        )
+    )
     return MessageResponseDTO(message="Роль удалена.")
 
 
@@ -328,10 +439,16 @@ def soft_delete_role(
 )
 def restore_role(
     role_id: int,
+    context: CurrentUserContext = Depends(get_current_user_context),
     rbac_service: RbacService = Depends(get_rbac_service),
 ) -> MessageResponseDTO:
     """Восстанавливает мягко удалённую роль."""
-    _call_rbac(lambda: rbac_service.restore_role(role_id=role_id))
+    _call_rbac(
+        lambda: rbac_service.restore_role(
+            role_id=role_id,
+            actor_user_id=context.user_id,
+        )
+    )
     return MessageResponseDTO(message="Роль восстановлена.")
 
 
@@ -440,10 +557,16 @@ def update_permission_patch(
 )
 def hard_delete_permission(
     permission_id: int,
+    context: CurrentUserContext = Depends(get_current_user_context),
     rbac_service: RbacService = Depends(get_rbac_service),
 ) -> MessageResponseDTO:
     """Физически удаляет разрешение."""
-    _call_rbac(lambda: rbac_service.hard_delete_permission(permission_id=permission_id))
+    _call_rbac(
+        lambda: rbac_service.hard_delete_permission(
+            permission_id=permission_id,
+            actor_user_id=context.user_id,
+        )
+    )
     return MessageResponseDTO(message="Разрешение удалено.")
 
 
@@ -478,10 +601,16 @@ def soft_delete_permission(
 )
 def restore_permission(
     permission_id: int,
+    context: CurrentUserContext = Depends(get_current_user_context),
     rbac_service: RbacService = Depends(get_rbac_service),
 ) -> MessageResponseDTO:
     """Восстанавливает мягко удалённое разрешение."""
-    _call_rbac(lambda: rbac_service.restore_permission(permission_id=permission_id))
+    _call_rbac(
+        lambda: rbac_service.restore_permission(
+            permission_id=permission_id,
+            actor_user_id=context.user_id,
+        )
+    )
     return MessageResponseDTO(message="Разрешение восстановлено.")
 
 

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.audit_service import AuditService
 from app.auth_service import AuthService
 from app.db import get_db
 from app.models import AuthSession, Permission, PermissionRole, Role, User, UserRole
@@ -55,6 +56,33 @@ def get_auth_service(
 def get_rbac_service(db: Session = Depends(get_db)) -> RbacService:
     """Создаёт RBAC-сервис в рамках текущей DB-сессии запроса."""
     return RbacService(db=db)
+
+
+def get_audit_service(db: Session = Depends(get_db)) -> AuditService:
+    """Создает Audit-сервис в рамках текущей DB-сессии запроса."""
+    return AuditService(db=db)
+
+
+def user_has_permission(db: Session, user_id: int, permission_slug: str) -> bool:
+    """Проверяет наличие permission-slug у пользователя."""
+    stmt = (
+        select(Permission.id)
+        .join(PermissionRole, PermissionRole.permission_id == Permission.id)
+        .join(Role, Role.id == PermissionRole.role_id)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .join(User, User.id == UserRole.user_id)
+        .where(
+            UserRole.user_id == user_id,
+            User.deleted_at.is_(None),
+            UserRole.deleted_at.is_(None),
+            Role.deleted_at.is_(None),
+            PermissionRole.deleted_at.is_(None),
+            Permission.deleted_at.is_(None),
+            func.lower(Permission.slug) == permission_slug.lower(),
+        )
+        .limit(1)
+    )
+    return db.scalar(stmt) is not None
 
 
 def validate_register_request_unique(
@@ -210,6 +238,19 @@ def get_current_user_context(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    user = db.get(User, session.user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Пользователь сессии не найден.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if user.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Пользователь деактивирован.",
+        )
+
     if session.revoked_at is not None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -238,24 +279,12 @@ def require_permission(permission_slug: str):
         context: CurrentUserContext = Depends(get_current_user_context),
         db: Session = Depends(get_db),
     ) -> None:
-        stmt = (
-            select(Permission.id)
-            .join(PermissionRole, PermissionRole.permission_id == Permission.id)
-            .join(Role, Role.id == PermissionRole.role_id)
-            .join(UserRole, UserRole.role_id == Role.id)
-            .where(
-                UserRole.user_id == context.user_id,
-                UserRole.deleted_at.is_(None),
-                Role.deleted_at.is_(None),
-                PermissionRole.deleted_at.is_(None),
-                Permission.deleted_at.is_(None),
-                func.lower(Permission.slug) == permission_slug.lower(),
-            )
-            .limit(1)
-        )
-
         try:
-            has_permission = db.scalar(stmt) is not None
+            has_permission = user_has_permission(
+                db=db,
+                user_id=context.user_id,
+                permission_slug=permission_slug,
+            )
         except SQLAlchemyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

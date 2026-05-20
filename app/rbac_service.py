@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
+from app.audit_context import bind_audit_actor
 from app.dto import (
     PermissionCollectionDTO,
     PermissionDTO,
@@ -15,6 +16,7 @@ from app.dto import (
     RoleDTO,
     RoleUpdateDTO,
     RoleWriteDTO,
+    UserUpdateDTO,
     UserDTO,
 )
 from app.models import Permission, PermissionRole, Role, User, UserRole
@@ -72,6 +74,10 @@ class PermissionRoleAlreadyExistsError(RbacConflictError):
     """Активная связь роль-разрешение уже существует."""
 
 
+class UserAlreadyExistsError(RbacConflictError):
+    """Пользователь с таким username или email уже существует."""
+
+
 class RbacService:
     """Бизнес-логика управления ролями, разрешениями и их связями."""
 
@@ -84,10 +90,101 @@ class RbacService:
             self._db.scalars(
                 select(User)
                 .options(selectinload(User.roles))
+                .where(User.deleted_at.is_(None))
                 .order_by(User.id.asc())
             )
         )
         return [self._to_user_dto(user) for user in users]
+
+    def get_user(self, user_id: int) -> UserDTO:
+        """Возвращает активного пользователя по id."""
+        return self._to_user_dto(self._require_user(user_id, include_deleted=False))
+
+    def update_user_patch(self, user_id: int, data: UserUpdateDTO, actor_user_id: int) -> UserDTO:
+        """Частично обновляет пользователя администратором."""
+        self._require_user(actor_user_id, include_deleted=False)
+        user = self._require_user(user_id, include_deleted=False)
+
+        changed = False
+        with bind_audit_actor(self._db, actor_user_id):
+            if data.has_username:
+                if data.username is None:
+                    raise ValueError("username не должен быть null.")
+                normalized_username = data.username.strip()
+                if self._username_exists(normalized_username, exclude_user_id=user_id):
+                    raise UserAlreadyExistsError("Пользователь с таким username уже существует.")
+                user.username = normalized_username
+                changed = True
+
+            if data.has_email:
+                if data.email is None:
+                    raise ValueError("email не должен быть null.")
+                normalized_email = data.email.strip()
+                if self._email_exists(normalized_email, exclude_user_id=user_id):
+                    raise UserAlreadyExistsError("Пользователь с таким email уже существует.")
+                user.email = normalized_email
+                changed = True
+
+            if data.has_birthday:
+                if data.birthday is None:
+                    raise ValueError("birthday не должен быть null.")
+                user.birthday = data.birthday
+                changed = True
+
+            if not changed:
+                raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
+
+            user.updated_at = self._now_utc()
+            self._commit_or_rollback(
+                integrity_error=UserAlreadyExistsError(
+                    "Пользователь с таким username или email уже существует."
+                ),
+            )
+
+        self._db.refresh(user)
+        return self._to_user_dto(user)
+
+    def hard_delete_user(self, user_id: int, actor_user_id: int) -> None:
+        """Физически удаляет пользователя."""
+        self._require_user(actor_user_id, include_deleted=False)
+        user = self._require_user(user_id, include_deleted=True)
+
+        with bind_audit_actor(self._db, actor_user_id):
+            self._db.delete(user)
+            self._commit_or_rollback(
+                integrity_error=RbacConflictError(
+                    "Невозможно выполнить hard-delete пользователя: есть связанные записи."
+                ),
+            )
+
+    def soft_delete_user(self, user_id: int, actor_user_id: int) -> None:
+        """Мягко удаляет активного пользователя."""
+        self._require_user(actor_user_id, include_deleted=False)
+        user = self._require_user(user_id, include_deleted=False)
+
+        with bind_audit_actor(self._db, actor_user_id):
+            user.deleted_at = self._now_utc()
+            user.deleted_by = actor_user_id
+            user.updated_at = self._now_utc()
+            self._commit_or_rollback()
+
+    def restore_user(self, user_id: int, actor_user_id: int) -> None:
+        """Восстанавливает мягко удаленного пользователя."""
+        self._require_user(actor_user_id, include_deleted=False)
+        user = self._db.scalar(
+            select(User).where(
+                User.id == user_id,
+                User.deleted_at.is_not(None),
+            )
+        )
+        if user is None:
+            raise RbacUserNotFoundError("Мягко удалённый пользователь не найден.")
+
+        with bind_audit_actor(self._db, actor_user_id):
+            user.deleted_at = None
+            user.deleted_by = None
+            user.updated_at = self._now_utc()
+            self._commit_or_rollback()
 
     def list_user_active_roles(self, user_id: int) -> RoleCollectionDTO:
         """Возвращает список активных ролей пользователя."""
@@ -193,7 +290,7 @@ class RbacService:
 
     def create_role(self, data: RoleWriteDTO, actor_user_id: int) -> RoleDTO:
         """Создаёт роль."""
-        self._require_user(actor_user_id)
+        self._require_user(actor_user_id, include_deleted=False)
 
         name = data.name.strip()
         slug = data.slug.strip()
@@ -202,22 +299,23 @@ class RbacService:
         if self._role_slug_exists(slug):
             raise RoleAlreadyExistsError("Роль с таким slug уже существует.")
 
-        role = Role(
-            name=name,
-            slug=slug,
-            description=data.description,
-            created_by=actor_user_id,
-        )
-        self._db.add(role)
-        self._commit_or_rollback(
-            integrity_error=RoleAlreadyExistsError("Роль с таким name или slug уже существует."),
-        )
+        with bind_audit_actor(self._db, actor_user_id):
+            role = Role(
+                name=name,
+                slug=slug,
+                description=data.description,
+                created_by=actor_user_id,
+            )
+            self._db.add(role)
+            self._commit_or_rollback(
+                integrity_error=RoleAlreadyExistsError("Роль с таким name или slug уже существует."),
+            )
         self._db.refresh(role)
         return self._to_role_dto(role)
 
     def update_role_put(self, role_id: int, data: RoleWriteDTO, actor_user_id: int) -> RoleDTO:
         """Полностью обновляет роль (PUT)."""
-        self._require_user(actor_user_id)
+        self._require_user(actor_user_id, include_deleted=False)
         role = self._require_role(role_id, include_deleted=False)
 
         normalized_name = data.name.strip()
@@ -227,73 +325,83 @@ class RbacService:
         if self._role_slug_exists(normalized_slug, exclude_role_id=role_id):
             raise RoleAlreadyExistsError("Роль с таким slug уже существует.")
 
-        role.name = normalized_name
-        role.slug = normalized_slug
-        role.description = data.description
-        role.updated_at = self._now_utc()
+        with bind_audit_actor(self._db, actor_user_id):
+            role.name = normalized_name
+            role.slug = normalized_slug
+            role.description = data.description
+            role.updated_at = self._now_utc()
 
-        self._commit_or_rollback(
-            integrity_error=RoleAlreadyExistsError("Роль с таким name или slug уже существует."),
-        )
+            self._commit_or_rollback(
+                integrity_error=RoleAlreadyExistsError("Роль с таким name или slug уже существует."),
+            )
         self._db.refresh(role)
         return self._to_role_dto(role)
 
     def update_role_patch(self, role_id: int, data: RoleUpdateDTO, actor_user_id: int) -> RoleDTO:
         """Частично обновляет роль (PATCH)."""
-        self._require_user(actor_user_id)
+        self._require_user(actor_user_id, include_deleted=False)
         role = self._require_role(role_id, include_deleted=False)
 
-        changed = False
-        if data.has_name:
-            if data.name is None:
-                raise ValueError("name не должен быть null.")
-            normalized_name = data.name.strip()
-            if self._role_name_exists(normalized_name, exclude_role_id=role_id):
-                raise RoleAlreadyExistsError("Роль с таким name уже существует.")
-            role.name = normalized_name
-            changed = True
+        with bind_audit_actor(self._db, actor_user_id):
+            changed = False
+            if data.has_name:
+                if data.name is None:
+                    raise ValueError("name не должен быть null.")
+                normalized_name = data.name.strip()
+                if self._role_name_exists(normalized_name, exclude_role_id=role_id):
+                    raise RoleAlreadyExistsError("Роль с таким name уже существует.")
+                role.name = normalized_name
+                changed = True
 
-        if data.has_slug:
-            if data.slug is None:
-                raise ValueError("slug не должен быть null.")
-            normalized_slug = data.slug.strip()
-            if self._role_slug_exists(normalized_slug, exclude_role_id=role_id):
-                raise RoleAlreadyExistsError("Роль с таким slug уже существует.")
-            role.slug = normalized_slug
-            changed = True
+            if data.has_slug:
+                if data.slug is None:
+                    raise ValueError("slug не должен быть null.")
+                normalized_slug = data.slug.strip()
+                if self._role_slug_exists(normalized_slug, exclude_role_id=role_id):
+                    raise RoleAlreadyExistsError("Роль с таким slug уже существует.")
+                role.slug = normalized_slug
+                changed = True
 
-        if data.has_description:
-            role.description = data.description
-            changed = True
+            if data.has_description:
+                role.description = data.description
+                changed = True
 
-        if not changed:
-            raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
+            if not changed:
+                raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
 
-        role.updated_at = self._now_utc()
-        self._commit_or_rollback(
-            integrity_error=RoleAlreadyExistsError("Роль с таким name или slug уже существует."),
-        )
+            role.updated_at = self._now_utc()
+            self._commit_or_rollback(
+                integrity_error=RoleAlreadyExistsError("Роль с таким name или slug уже существует."),
+            )
         self._db.refresh(role)
         return self._to_role_dto(role)
 
-    def hard_delete_role(self, role_id: int) -> None:
+    def hard_delete_role(self, role_id: int, actor_user_id: int) -> None:
         """Физически удаляет роль."""
+        self._require_user(actor_user_id, include_deleted=False)
         role = self._require_role(role_id, include_deleted=True)
-        self._db.delete(role)
-        self._commit_or_rollback()
+        with bind_audit_actor(self._db, actor_user_id):
+            self._db.delete(role)
+            self._commit_or_rollback(
+                integrity_error=RbacConflictError(
+                    "Невозможно выполнить hard-delete роли: есть связанные записи."
+                ),
+            )
 
     def soft_delete_role(self, role_id: int, actor_user_id: int) -> None:
         """Мягко удаляет активную роль."""
-        self._require_user(actor_user_id)
+        self._require_user(actor_user_id, include_deleted=False)
         role = self._require_role(role_id, include_deleted=False)
 
-        role.deleted_at = self._now_utc()
-        role.deleted_by = actor_user_id
-        role.updated_at = self._now_utc()
-        self._commit_or_rollback()
+        with bind_audit_actor(self._db, actor_user_id):
+            role.deleted_at = self._now_utc()
+            role.deleted_by = actor_user_id
+            role.updated_at = self._now_utc()
+            self._commit_or_rollback()
 
-    def restore_role(self, role_id: int) -> None:
+    def restore_role(self, role_id: int, actor_user_id: int) -> None:
         """Восстанавливает мягко удалённую роль."""
+        self._require_user(actor_user_id, include_deleted=False)
         role = self._db.scalar(
             select(Role).where(
                 Role.id == role_id,
@@ -303,10 +411,11 @@ class RbacService:
         if role is None:
             raise RoleNotFoundError("Мягко удалённая роль не найдена.")
 
-        role.deleted_at = None
-        role.deleted_by = None
-        role.updated_at = self._now_utc()
-        self._commit_or_rollback()
+        with bind_audit_actor(self._db, actor_user_id):
+            role.deleted_at = None
+            role.deleted_by = None
+            role.updated_at = self._now_utc()
+            self._commit_or_rollback()
 
     def list_permissions(self) -> PermissionCollectionDTO:
         """Возвращает список активных разрешений."""
@@ -328,7 +437,7 @@ class RbacService:
 
     def create_permission(self, data: PermissionWriteDTO, actor_user_id: int) -> PermissionDTO:
         """Создаёт разрешение."""
-        self._require_user(actor_user_id)
+        self._require_user(actor_user_id, include_deleted=False)
 
         name = data.name.strip()
         slug = data.slug.strip()
@@ -337,18 +446,19 @@ class RbacService:
         if self._permission_slug_exists(slug):
             raise PermissionAlreadyExistsError("Разрешение с таким slug уже существует.")
 
-        permission = Permission(
-            name=name,
-            slug=slug,
-            description=data.description,
-            created_by=actor_user_id,
-        )
-        self._db.add(permission)
-        self._commit_or_rollback(
-            integrity_error=PermissionAlreadyExistsError(
-                "Разрешение с таким name или slug уже существует."
+        with bind_audit_actor(self._db, actor_user_id):
+            permission = Permission(
+                name=name,
+                slug=slug,
+                description=data.description,
+                created_by=actor_user_id,
             )
-        )
+            self._db.add(permission)
+            self._commit_or_rollback(
+                integrity_error=PermissionAlreadyExistsError(
+                    "Разрешение с таким name или slug уже существует."
+                )
+            )
         self._db.refresh(permission)
         return self._to_permission_dto(permission)
 
@@ -359,7 +469,7 @@ class RbacService:
         actor_user_id: int,
     ) -> PermissionDTO:
         """Полностью обновляет разрешение (PUT)."""
-        self._require_user(actor_user_id)
+        self._require_user(actor_user_id, include_deleted=False)
         permission = self._require_permission(permission_id, include_deleted=False)
 
         normalized_name = data.name.strip()
@@ -369,16 +479,17 @@ class RbacService:
         if self._permission_slug_exists(normalized_slug, exclude_permission_id=permission_id):
             raise PermissionAlreadyExistsError("Разрешение с таким slug уже существует.")
 
-        permission.name = normalized_name
-        permission.slug = normalized_slug
-        permission.description = data.description
-        permission.updated_at = self._now_utc()
+        with bind_audit_actor(self._db, actor_user_id):
+            permission.name = normalized_name
+            permission.slug = normalized_slug
+            permission.description = data.description
+            permission.updated_at = self._now_utc()
 
-        self._commit_or_rollback(
-            integrity_error=PermissionAlreadyExistsError(
-                "Разрешение с таким name или slug уже существует."
+            self._commit_or_rollback(
+                integrity_error=PermissionAlreadyExistsError(
+                    "Разрешение с таким name или slug уже существует."
+                )
             )
-        )
         self._db.refresh(permission)
         return self._to_permission_dto(permission)
 
@@ -389,62 +500,71 @@ class RbacService:
         actor_user_id: int,
     ) -> PermissionDTO:
         """Частично обновляет разрешение (PATCH)."""
-        self._require_user(actor_user_id)
+        self._require_user(actor_user_id, include_deleted=False)
         permission = self._require_permission(permission_id, include_deleted=False)
 
-        changed = False
-        if data.has_name:
-            if data.name is None:
-                raise ValueError("name не должен быть null.")
-            normalized_name = data.name.strip()
-            if self._permission_name_exists(normalized_name, exclude_permission_id=permission_id):
-                raise PermissionAlreadyExistsError("Разрешение с таким name уже существует.")
-            permission.name = normalized_name
-            changed = True
+        with bind_audit_actor(self._db, actor_user_id):
+            changed = False
+            if data.has_name:
+                if data.name is None:
+                    raise ValueError("name не должен быть null.")
+                normalized_name = data.name.strip()
+                if self._permission_name_exists(normalized_name, exclude_permission_id=permission_id):
+                    raise PermissionAlreadyExistsError("Разрешение с таким name уже существует.")
+                permission.name = normalized_name
+                changed = True
 
-        if data.has_slug:
-            if data.slug is None:
-                raise ValueError("slug не должен быть null.")
-            normalized_slug = data.slug.strip()
-            if self._permission_slug_exists(normalized_slug, exclude_permission_id=permission_id):
-                raise PermissionAlreadyExistsError("Разрешение с таким slug уже существует.")
-            permission.slug = normalized_slug
-            changed = True
+            if data.has_slug:
+                if data.slug is None:
+                    raise ValueError("slug не должен быть null.")
+                normalized_slug = data.slug.strip()
+                if self._permission_slug_exists(normalized_slug, exclude_permission_id=permission_id):
+                    raise PermissionAlreadyExistsError("Разрешение с таким slug уже существует.")
+                permission.slug = normalized_slug
+                changed = True
 
-        if data.has_description:
-            permission.description = data.description
-            changed = True
+            if data.has_description:
+                permission.description = data.description
+                changed = True
 
-        if not changed:
-            raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
+            if not changed:
+                raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
 
-        permission.updated_at = self._now_utc()
-        self._commit_or_rollback(
-            integrity_error=PermissionAlreadyExistsError(
-                "Разрешение с таким name или slug уже существует."
+            permission.updated_at = self._now_utc()
+            self._commit_or_rollback(
+                integrity_error=PermissionAlreadyExistsError(
+                    "Разрешение с таким name или slug уже существует."
+                )
             )
-        )
         self._db.refresh(permission)
         return self._to_permission_dto(permission)
 
-    def hard_delete_permission(self, permission_id: int) -> None:
+    def hard_delete_permission(self, permission_id: int, actor_user_id: int) -> None:
         """Физически удаляет разрешение."""
+        self._require_user(actor_user_id, include_deleted=False)
         permission = self._require_permission(permission_id, include_deleted=True)
-        self._db.delete(permission)
-        self._commit_or_rollback()
+        with bind_audit_actor(self._db, actor_user_id):
+            self._db.delete(permission)
+            self._commit_or_rollback(
+                integrity_error=RbacConflictError(
+                    "Невозможно выполнить hard-delete разрешения: есть связанные записи."
+                ),
+            )
 
     def soft_delete_permission(self, permission_id: int, actor_user_id: int) -> None:
         """Мягко удаляет активное разрешение."""
-        self._require_user(actor_user_id)
+        self._require_user(actor_user_id, include_deleted=False)
         permission = self._require_permission(permission_id, include_deleted=False)
 
-        permission.deleted_at = self._now_utc()
-        permission.deleted_by = actor_user_id
-        permission.updated_at = self._now_utc()
-        self._commit_or_rollback()
+        with bind_audit_actor(self._db, actor_user_id):
+            permission.deleted_at = self._now_utc()
+            permission.deleted_by = actor_user_id
+            permission.updated_at = self._now_utc()
+            self._commit_or_rollback()
 
-    def restore_permission(self, permission_id: int) -> None:
+    def restore_permission(self, permission_id: int, actor_user_id: int) -> None:
         """Восстанавливает мягко удалённое разрешение."""
+        self._require_user(actor_user_id, include_deleted=False)
         permission = self._db.scalar(
             select(Permission).where(
                 Permission.id == permission_id,
@@ -454,10 +574,11 @@ class RbacService:
         if permission is None:
             raise PermissionNotFoundError("Мягко удалённое разрешение не найдено.")
 
-        permission.deleted_at = None
-        permission.deleted_by = None
-        permission.updated_at = self._now_utc()
-        self._commit_or_rollback()
+        with bind_audit_actor(self._db, actor_user_id):
+            permission.deleted_at = None
+            permission.deleted_by = None
+            permission.updated_at = self._now_utc()
+            self._commit_or_rollback()
 
     def list_role_active_permissions(self, role_id: int) -> PermissionCollectionDTO:
         """Возвращает список активных разрешений роли."""
@@ -561,8 +682,12 @@ class RbacService:
         link.deleted_by = None
         self._commit_or_rollback()
 
-    def _require_user(self, user_id: int) -> User:
-        user = self._db.get(User, user_id)
+    def _require_user(self, user_id: int, *, include_deleted: bool = False) -> User:
+        stmt = select(User).where(User.id == user_id)
+        if not include_deleted:
+            stmt = stmt.where(User.deleted_at.is_(None))
+
+        user = self._db.scalar(stmt)
         if user is None:
             raise RbacUserNotFoundError("Пользователь не найден.")
         return user
@@ -687,6 +812,18 @@ class RbacService:
         stmt = select(Permission.id).where(func.lower(Permission.slug) == slug.lower())
         if exclude_permission_id is not None:
             stmt = stmt.where(Permission.id != exclude_permission_id)
+        return self._db.scalar(stmt) is not None
+
+    def _username_exists(self, username: str, exclude_user_id: int | None = None) -> bool:
+        stmt = select(User.id).where(func.lower(User.username) == username.lower())
+        if exclude_user_id is not None:
+            stmt = stmt.where(User.id != exclude_user_id)
+        return self._db.scalar(stmt) is not None
+
+    def _email_exists(self, email: str, exclude_user_id: int | None = None) -> bool:
+        stmt = select(User.id).where(func.lower(User.email) == email.lower())
+        if exclude_user_id is not None:
+            stmt = stmt.where(User.id != exclude_user_id)
         return self._db.scalar(stmt) is not None
 
     def _commit_or_rollback(self, integrity_error: RbacServiceError | None = None) -> None:
