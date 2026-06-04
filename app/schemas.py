@@ -401,3 +401,23 @@ class UpdateUserRequest(BaseModel):
             has_email="email" in self.model_fields_set,
             has_birthday="birthday" in self.model_fields_set,
         )
+
+
+# ==================== ЛР6: Git Webhook Deployment ====================
+class GitWebhookRequest(BaseModel):
+    """Запрос Git webhook-а для запуска deployment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    secret_key: str = Field(
+        ...,
+        min_length=1,
+        max_length=256,
+        description="Секретный ключ webhook-а из переменной окружения GIT_WEBHOOK_SECRET.",
+        examples=["00000000-0000-0000-0000-000000000000"],
+    )
+
+    @field_validator("secret_key")
+    @classmethod
+    def validate_secret_key(cls, value: str) -> str:
+        return _validate_non_blank(value, "secret_key").strip()

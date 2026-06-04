@@ -246,6 +246,31 @@ class ChangeLogCollectionDTO(BaseModel):
     total: int = Field(ge=0)
 
 
+# ==================== ЛР6: Git Webhook Deployment DTO ====================
+class GitCommandResultDTO(BaseModel):
+    """Результат выполнения одной Git-команды."""
+
+    model_config = ConfigDict(frozen=True)
+
+    command: str = Field(description="Выполненная Git-команда.")
+    return_code: int = Field(description="Код завершения процесса.")
+    stdout: str = Field(description="Стандартный вывод команды.")
+    stderr: str = Field(description="Стандартный поток ошибок команды.")
+
+
+class DeploymentResponseDTO(BaseModel):
+    """Ответ webhook-а после завершения deployment-операции."""
+
+    model_config = ConfigDict(frozen=True)
+
+    message: str = Field(description="Итоговое сообщение deployment-процесса.")
+    branch: str = Field(description="Git-ветка, которая обновлялась.")
+    commands: list[GitCommandResultDTO] = Field(
+        default_factory=list,
+        description="Результаты выполненных Git-команд.",
+    )
+
+
 class LogoutAllResponseDTO(BaseModel):
     """Выход везде."""
 

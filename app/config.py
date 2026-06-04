@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 HS256_MIN_SECRET_BYTES = 32
+GIT_WEBHOOK_SECRET_LENGTH = 36
 
 
 class Settings(BaseSettings):
@@ -55,6 +56,25 @@ class Settings(BaseSettings):
         ge=1,
     )
 
+    # ==================== ЛР6: Git Webhook Deployment ====================
+    git_webhook_secret: str = Field(
+        ...,
+        alias="GIT_WEBHOOK_SECRET",
+        min_length=GIT_WEBHOOK_SECRET_LENGTH,
+        max_length=GIT_WEBHOOK_SECRET_LENGTH,
+    )
+    git_default_branch: str = Field(default="main", alias="GIT_DEFAULT_BRANCH", min_length=1)
+    git_webhook_lock_ttl_seconds: int = Field(
+        default=300,
+        alias="GIT_WEBHOOK_LOCK_TTL_SECONDS",
+        ge=1,
+    )
+    git_webhook_command_timeout_seconds: int = Field(
+        default=120,
+        alias="GIT_WEBHOOK_COMMAND_TIMEOUT_SECONDS",
+        ge=1,
+    )
+
     @field_validator("refresh_token_pepper", mode="before")
     @classmethod
     def parse_refresh_token_pepper(cls, raw_value: Any) -> str | None:
@@ -89,6 +109,30 @@ class Settings(BaseSettings):
                 f"нужно минимум {HS256_MIN_SECRET_BYTES} байт."
             )
         return self
+
+    @field_validator("git_webhook_secret")
+    @classmethod
+    def validate_git_webhook_secret(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) != GIT_WEBHOOK_SECRET_LENGTH:
+            raise ValueError("GIT_WEBHOOK_SECRET должен содержать ровно 36 символов.")
+        return normalized
+
+    @field_validator("git_default_branch")
+    @classmethod
+    def validate_git_default_branch(cls, value: str) -> str:
+        """Проверяет, что ветка из .env является безопасным Git ref."""
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("GIT_DEFAULT_BRANCH не должен быть пустым.")
+        if any(char.isspace() for char in normalized):
+            raise ValueError("GIT_DEFAULT_BRANCH не должен содержать пробельные символы.")
+        allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-")
+        if normalized.startswith("-") or not set(normalized) <= allowed_chars:
+            raise ValueError("GIT_DEFAULT_BRANCH содержит недопустимые символы.")
+        if normalized.endswith("/") or ".." in normalized or "@{" in normalized:
+            raise ValueError("GIT_DEFAULT_BRANCH должен быть корректным именем Git-ветки.")
+        return normalized
 
     @property
     def database_url(self) -> str:
