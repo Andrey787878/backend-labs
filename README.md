@@ -48,6 +48,23 @@
 - `docs/LR4_ENDPOINTS_SCHEMA.md`, `docs/LR4_SWAGGER_CHECKS.md`, `docs/LR4_DEFENSE_QA.md`:
   документация для проверки и защиты
 
+### ЛР6 — Git Webhook Deployment
+
+- `app/git_webhook_routes.py`:
+  открытый endpoint `POST /hooks/git`
+- `app/deployment_service.py`:
+  последовательность webhook deployment: логирование, lock, Git-команды
+- `app/git_command_runner.py`:
+  безопасный запуск Git-команд без shell
+- `app/deployment_lock.py`:
+  файловая блокировка от параллельного deployment
+- `app/deployment_logger.py`:
+  структурированные логи в `deployment_logs/deployment.log`
+- `app/config.py`, `.env.example`:
+  `GIT_WEBHOOK_SECRET`, `GIT_DEFAULT_BRANCH`, TTL lock и timeout команд
+- `docs/LR6_ENDPOINTS_SCHEMA.md`, `docs/LR6_SWAGGER_CHECKS.md`, `docs/LR6_DEFENSE_QA.md`:
+  документация для проверки и защиты
+
 ## ЛР2: Авторизация
 
 ## 1. Кратко о проекте
