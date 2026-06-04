@@ -18,13 +18,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/deps
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --gid 1000 app && \
     useradd --uid 1000 --gid 1000 --create-home --shell /usr/sbin/nologin app
+
+RUN mkdir -p /app/deployment_logs && \
+    chown -R 1000:1000 /app/deployment_logs
 
 COPY --from=deps /deps /deps
 COPY --chown=1000:1000 app /app/app
 COPY --chown=1000:1000 alembic /app/alembic
 COPY --chown=1000:1000 alembic.ini /app/alembic.ini
+
+RUN chown 1000:1000 /app
 
 USER 1000:1000
 
