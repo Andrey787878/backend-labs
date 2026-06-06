@@ -127,7 +127,7 @@ def validate_register_request_unique(
         ) from exc
 
     if errors:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=errors)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=errors)
 
     return payload
 

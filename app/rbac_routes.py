@@ -50,7 +50,7 @@ def _raise_http_for_rbac_error(
     if isinstance(error, RbacNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
     if isinstance(error, RbacConflictError):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
     if isinstance(error, RbacPersistenceError):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -62,7 +62,7 @@ def _raise_http_for_rbac_error(
             detail="Временная ошибка доступа к данным. Повторите попытку позже.",
         )
     if isinstance(error, ValueError):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
     if isinstance(error, RbacServiceError):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
 

@@ -43,7 +43,7 @@ def _raise_http_for_auth_error(
 ) -> NoReturn:
     """Преобразует доменные исключения auth-сервисов в HTTPException."""
     if isinstance(error, UserAlreadyExistsError):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
     if isinstance(error, InvalidCredentialsError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error))
     if isinstance(error, InvalidRefreshTokenError):
@@ -65,7 +65,7 @@ def _raise_http_for_auth_error(
     if isinstance(error, TokenServiceError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error))
     if isinstance(error, ValueError):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
     if isinstance(error, AuthServiceError):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
     raise HTTPException(
