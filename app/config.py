@@ -75,6 +75,15 @@ class Settings(BaseSettings):
         ge=1,
     )
 
+    # ==================== ЛР7: Request/Response Logging ====================
+    request_log_retention_hours: int = Field(default=73, alias="REQUEST_LOG_RETENTION_HOURS", ge=1)
+    request_log_body_max_chars: int = Field(default=20000, alias="REQUEST_LOG_BODY_MAX_CHARS", ge=1000)
+    request_log_clean_interval_seconds: int = Field(
+        default=3600,
+        alias="REQUEST_LOG_CLEAN_INTERVAL_SECONDS",
+        ge=60,
+    )
+
     @field_validator("refresh_token_pepper", mode="before")
     @classmethod
     def parse_refresh_token_pepper(cls, raw_value: Any) -> str | None:

@@ -1,6 +1,6 @@
 import re
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
@@ -421,3 +421,57 @@ class GitWebhookRequest(BaseModel):
     @classmethod
     def validate_secret_key(cls, value: str) -> str:
         return _validate_non_blank(value, "secret_key").strip()
+
+
+# ==================== ЛР7: Request/Response Logging ====================
+LogRequestSortKey = Literal[
+    "id",
+    "called_at",
+    "response_status",
+    "user_id",
+    "ip_address",
+    "controller_path",
+]
+LogRequestFilterKey = Literal[
+    "user_id",
+    "response_status",
+    "ip_address",
+    "user_agent",
+    "controller_path",
+]
+SortOrder = Literal["asc", "desc"]
+
+
+class LogRequestSortItem(BaseModel):
+    """Один элемент сортировки списка request/response логов."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: LogRequestSortKey = Field(description="Поле сортировки.")
+    order: SortOrder = Field(default="desc", description="Направление сортировки.")
+
+
+class LogRequestFilterItem(BaseModel):
+    """Один фильтр списка request/response логов."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: LogRequestFilterKey = Field(description="Поле фильтрации.")
+    value: str = Field(..., min_length=1, max_length=512, description="Значение фильтра.")
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, value: str) -> str:
+        """Нормализует значение фильтра и запрещает пустые строки."""
+        return _validate_non_blank(value, "value").strip()
+
+
+class LogRequestIndexQuery(BaseModel):
+    """Валидированные query-параметры списка request/response логов."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sort_by: list[LogRequestSortItem] = Field(default_factory=list)
+    filters: list[LogRequestFilterItem] = Field(default_factory=list)
+    page: int = Field(default=1, ge=1)
+    count: int = Field(default=10, ge=1, le=100)

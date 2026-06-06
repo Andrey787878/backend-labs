@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, JSON, Date, DateTime, ForeignKey, Index, String, Text, and_, func
+from sqlalchemy import BigInteger, JSON, Date, DateTime, ForeignKey, Index, SmallInteger, String, Text, and_, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -329,4 +329,37 @@ class ChangeLog(Base):
     user: Mapped[User] = relationship(
         back_populates="change_logs",
         foreign_keys=[created_by],
+    )
+
+
+# ==================== ЛР7: Request/Response Logging ====================
+class LogRequest(Base):
+    __tablename__ = "logs_requests"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    full_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    method: Mapped[str] = mapped_column(String(10), nullable=False)
+    controller_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    controller_method: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    request_body: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    request_headers: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True, index=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    response_status: Mapped[int] = mapped_column(SmallInteger, nullable=False, index=True)
+    response_body: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    response_headers: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    called_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        Index("ix_logs_requests_controller_path", "controller_path"),
     )

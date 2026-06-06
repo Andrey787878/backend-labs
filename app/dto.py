@@ -271,6 +271,55 @@ class DeploymentResponseDTO(BaseModel):
     )
 
 
+# ==================== ЛР7: Request/Response Logging DTO ====================
+class LogRequestDTO(BaseModel):
+    """Полная запись request/response лога."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    full_url: str
+    method: str
+    controller_path: str | None
+    controller_method: str | None
+    request_body: dict[str, Any] | None
+    request_headers: dict[str, Any] | None
+    user_id: int | None
+    ip_address: str | None
+    user_agent: str | None
+    response_status: int
+    response_body: dict[str, Any] | None
+    response_headers: dict[str, Any] | None
+    called_at: datetime
+    created_at: datetime
+
+
+class LogRequestListItemDTO(BaseModel):
+    """Сокращённая запись request/response лога для списка."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    full_url: str
+    method: str
+    controller_path: str | None
+    controller_method: str | None
+    response_status: int
+    called_at: datetime
+
+
+class LogRequestCollectionDTO(BaseModel):
+    """Коллекция request/response логов с мета-информацией пагинации."""
+
+    model_config = ConfigDict(frozen=True)
+
+    items: list[LogRequestListItemDTO]
+    page: int = Field(ge=1)
+    pages: int = Field(ge=0)
+    total: int = Field(ge=0)
+    count: int = Field(ge=1)
+
+
 class LogoutAllResponseDTO(BaseModel):
     """Выход везде."""
 

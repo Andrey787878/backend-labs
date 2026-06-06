@@ -26,3 +26,8 @@ class PermissionSlugs:
     DELETE_PERMISSION = "delete-permission"
     RESTORE_PERMISSION = "restore-permission"
     GET_STORY_PERMISSION = "get-story-permission"
+
+    # ==================== ЛР7: Request/Response Logging ====================
+    GET_LIST_LOG = "get-list-log"
+    READ_LOG = "read-log"
+    DELETE_LOG = "delete-log"
