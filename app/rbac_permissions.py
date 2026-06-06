@@ -34,3 +34,6 @@ class PermissionSlugs:
 
     # ==================== ЛР8: Queued Analytics Reports ====================
     GENERATE_REPORT = "generate-report"
+
+    # ==================== ЛР12: Attendance Auto Credit ====================
+    CALCULATE_ATTENDANCE = "calculate-attendance"

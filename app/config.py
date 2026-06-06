@@ -101,6 +101,16 @@ class Settings(BaseSettings):
     )
     reports_dir: str = Field(default="reports", alias="REPORTS_DIR", min_length=1)
 
+    # ==================== ЛР12: Attendance Auto Credit ====================
+    required_labs: int = Field(default=5, alias="REQUIRED_LABS", ge=1)
+    attendance_percent_threshold: int = Field(
+        default=80,
+        alias="ATTENDANCE_PERCENT_THRESHOLD",
+        ge=0,
+        le=100,
+    )
+    upload_max_size_mb: int = Field(default=10, alias="UPLOAD_MAX_SIZE_MB", ge=1)
+
     @field_validator("refresh_token_pepper", mode="before")
     @classmethod
     def parse_refresh_token_pepper(cls, raw_value: Any) -> str | None:

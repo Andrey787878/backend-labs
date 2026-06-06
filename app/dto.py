@@ -392,6 +392,88 @@ class ReportContentDTO(BaseModel):
     user_rating: list[ReportUserRatingItemDTO]
 
 
+# ==================== ЛР12: Attendance Auto Credit DTO ====================
+class AttendanceRowDTO(BaseModel):
+    """Одна нормализованная строка Excel-файла посещаемости."""
+
+    model_config = ConfigDict(frozen=True)
+
+    group_name: str
+    subgroup: int = Field(ge=1)
+    student_name: str
+    date: str
+    time: str
+    lesson_type: str
+    lesson_number: int = Field(ge=1)
+    visited: bool
+    success_labs: int = Field(ge=0)
+    already_auto_credit: bool
+
+
+class AttendanceLessonDTO(BaseModel):
+    """Занятие в итоговом отчёте студента."""
+
+    model_config = ConfigDict(frozen=True)
+
+    date: str
+    time: str
+    type: str
+    number: int = Field(ge=1)
+    subgroups: int = Field(ge=1)
+    visit: bool
+
+
+class AttendanceStudentDTO(BaseModel):
+    """Результат расчёта по одному студенту."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    subgroup: int = Field(ge=1)
+    leasons: list[AttendanceLessonDTO]
+    visit_percent: int = Field(ge=0)
+    success_labs_percent: int = Field(ge=0)
+    success_labs: int = Field(ge=0)
+    result: bool
+
+
+class AttendanceGroupResultDTO(BaseModel):
+    """Итоги автоматического зачёта по группе."""
+
+    model_config = ConfigDict(frozen=True)
+
+    success: int = Field(ge=0)
+    unsuccessfully: int = Field(ge=0)
+
+
+class AttendanceGroupDTO(BaseModel):
+    """Группа студентов в отчёте ЛР12."""
+
+    model_config = ConfigDict(frozen=True)
+
+    group_name: str
+    students: list[AttendanceStudentDTO]
+    result: AttendanceGroupResultDTO
+
+
+class AttendanceAutoSuccessStudentDTO(BaseModel):
+    """Краткая запись студента, получившего зачёт."""
+
+    model_config = ConfigDict(frozen=True)
+
+    group_name: str
+    name: str
+
+
+class AttendanceCalculateResponseDTO(BaseModel):
+    """Итоговый JSON-ответ расчёта автоматического зачёта."""
+
+    model_config = ConfigDict(frozen=True)
+
+    groups: list[AttendanceGroupDTO]
+    automatic_success_students: list[AttendanceAutoSuccessStudentDTO]
+
+
 class LogoutAllResponseDTO(BaseModel):
     """Выход везде."""
 
