@@ -86,6 +86,27 @@
 - `docs/LR7_ENDPOINTS_SCHEMA.md`, `docs/LR7_SWAGGER_CHECKS.md`, `docs/LR7_DEFENSE_QA.md`:
   документация для проверки и защиты
 
+### ЛР8 — Queued Analytics Reports
+
+- `app/models.py`:
+  `ReportJob` и таблица `report_jobs`
+- `app/report_routes.py`:
+  admin endpoint `POST /api/report/generate`
+- `app/report_queue_service.py`:
+  DB-backed очередь, retry/backoff/status transitions
+- `app/report_data_collector.py`:
+  сбор рейтингов из `logs_requests`, `change_logs`, `auth_sessions` и RBAC permissions
+- `app/report_builder.py`:
+  формирование JSON-отчёта в `REPORTS_DIR`
+- `app/report_sender.py`:
+  эмуляция доставки отчёта администраторам из `REPORT_ADMIN_EMAIL`
+- `app/report_job_processor.py`, `app/report_worker.py`:
+  background worker генерации отчётов
+- `alembic/versions/20260606_0006_add_report_jobs.py`:
+  миграция `report_jobs` + permission `generate-report`
+- `docs/LR8_ENDPOINTS_SCHEMA.md`, `docs/LR8_SWAGGER_CHECKS.md`, `docs/LR8_DEFENSE_QA.md`:
+  документация для проверки и защиты
+
 ## ЛР2: Авторизация
 
 ## 1. Кратко о проекте
