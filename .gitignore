@@ -10,3 +10,4 @@ __pycache__/
 tokens.txt
 deployment_logs/
 reports/
+tmp/

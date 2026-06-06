@@ -30,6 +30,7 @@ RUN mkdir -p /app/deployment_logs && \
 
 COPY --from=deps /deps /deps
 COPY --chown=1000:1000 app /app/app
+COPY --chown=1000:1000 scripts /app/scripts
 COPY --chown=1000:1000 alembic /app/alembic
 COPY --chown=1000:1000 alembic.ini /app/alembic.ini
 

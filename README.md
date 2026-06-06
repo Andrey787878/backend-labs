@@ -413,3 +413,6 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080
 - [Swagger checks](docs/AUTH_SWAGGER_CHECKS.md)
 - [RBAC Swagger checks (ЛР3)](docs/RBAC_SWAGGER_CHECKS.md)
 - [RBAC Defense QA (ЛР3)](docs/RBAC_DEFENSE_QA.md)
+- [LR12 endpoint schema](docs/LR12_ENDPOINTS_SCHEMA.md)
+- [LR12 Swagger checks](docs/LR12_SWAGGER_CHECKS.md)
+- [LR12 Defense QA](docs/LR12_DEFENSE_QA.md)
