@@ -65,6 +65,27 @@
 - `docs/LR6_ENDPOINTS_SCHEMA.md`, `docs/LR6_SWAGGER_CHECKS.md`, `docs/LR6_DEFENSE_QA.md`:
   документация для проверки и защиты
 
+### ЛР7 — Request/Response Logging
+
+- `app/models.py`:
+  `LogRequest` и таблица `logs_requests`
+- `app/request_log_middleware.py`:
+  глобальное логирование всех HTTP request/response
+- `app/request_log_sanitizer.py`:
+  маскирование паролей, токенов и `Authorization`
+- `app/request_log_service.py`:
+  запись, просмотр, фильтрация, сортировка, удаление и очистка логов
+- `app/request_log_routes.py`:
+  admin endpoints `/api/ref/log/request`
+- `app/request_log_cleaner.py`:
+  CLI-очистка логов старше `REQUEST_LOG_RETENTION_HOURS`
+- `app/request_log_scheduler.py`:
+  автоматическая очистка старых логов по интервалу `REQUEST_LOG_CLEAN_INTERVAL_SECONDS`
+- `alembic/versions/20260604_0005_add_request_response_logs.py`:
+  миграция `logs_requests` + permissions `get-list-log`, `read-log`, `delete-log`
+- `docs/LR7_ENDPOINTS_SCHEMA.md`, `docs/LR7_SWAGGER_CHECKS.md`, `docs/LR7_DEFENSE_QA.md`:
+  документация для проверки и защиты
+
 ## ЛР2: Авторизация
 
 ## 1. Кратко о проекте
