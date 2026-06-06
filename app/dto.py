@@ -320,6 +320,78 @@ class LogRequestCollectionDTO(BaseModel):
     count: int = Field(ge=1)
 
 
+# ==================== ЛР8: Queued Analytics Reports DTO ====================
+class ReportGenerateResponseDTO(BaseModel):
+    """Ответ постановки аналитического отчёта в очередь."""
+
+    model_config = ConfigDict(frozen=True)
+
+    message: str = Field(description="Итоговое сообщение операции.")
+    job_id: int = Field(description="Идентификатор фоновой задачи.")
+    status: str = Field(description="Текущий статус задачи.")
+
+
+class ReportJobDTO(BaseModel):
+    """Публичное состояние задачи генерации отчёта."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    status: str
+    attempts: int
+    max_attempts: int
+    report_path: str | None
+    error_message: str | None
+    created_by: int | None
+    created_at: datetime
+
+
+class ReportRatingItemDTO(BaseModel):
+    """Одна строка рейтинга методов или сущностей."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    count: int = Field(ge=0)
+    last_operation_at: datetime | None
+
+
+class ReportUserRatingItemDTO(BaseModel):
+    """Одна строка пользовательского рейтинга."""
+
+    model_config = ConfigDict(frozen=True)
+
+    user_id: int
+    request_count: int = Field(ge=0)
+    change_count: int = Field(ge=0)
+    auth_count: int = Field(ge=0)
+    permission_count: int = Field(ge=0)
+    last_operation_at: datetime | None
+
+
+class ReportPeriodDTO(BaseModel):
+    """Период, за который собран аналитический отчёт."""
+
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    from_at: datetime = Field(alias="from")
+    to: datetime
+    hours: int = Field(ge=1)
+
+
+class ReportContentDTO(BaseModel):
+    """Структура JSON-отчёта ЛР8."""
+
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    type: str
+    generated_at: datetime
+    period: ReportPeriodDTO
+    method_rating: list[ReportRatingItemDTO]
+    entity_rating: list[ReportRatingItemDTO]
+    user_rating: list[ReportUserRatingItemDTO]
+
+
 class LogoutAllResponseDTO(BaseModel):
     """Выход везде."""
 

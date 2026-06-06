@@ -31,3 +31,6 @@ class PermissionSlugs:
     GET_LIST_LOG = "get-list-log"
     READ_LOG = "read-log"
     DELETE_LOG = "delete-log"
+
+    # ==================== ЛР8: Queued Analytics Reports ====================
+    GENERATE_REPORT = "generate-report"
