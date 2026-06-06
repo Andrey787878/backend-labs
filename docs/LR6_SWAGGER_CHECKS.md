@@ -17,7 +17,17 @@ GIT_DEFAULT_BRANCH=main
 docker compose up -d --build
 ```
 
-3. В Swagger найдите группу `git-webhook`.
+3. Для безопасной демонстрации успешного `git pull` подготовьте demo Git-репозиторий внутри контейнера:
+
+```bash
+sh scripts/prepare_lr6_webhook_demo.sh
+```
+
+Скрипт создает локальный bare `origin` в `/tmp/lr6_demo_origin.git`, настраивает `/app` как Git worktree и добавляет demo-коммит, который webhook сможет подтянуть через `git pull origin main`.
+
+Важно: настоящий репозиторий на host-машине не используется и не изменяется.
+
+4. В Swagger найдите группу `git-webhook`.
 
 ## 2. Проверка 403
 
@@ -31,7 +41,7 @@ docker compose up -d --build
 
 Ожидаемо: `403`, `Invalid secret key`.
 
-## 3. Проверка 200 или 500 окружения
+## 3. Проверка 200 после demo-подготовки
 
 Вызовите `POST /hooks/git` с корректным секретом:
 
@@ -41,16 +51,32 @@ docker compose up -d --build
 }
 ```
 
-На сервере, где приложение запущено из Git-репозитория с доступом к `origin`, ожидаемо: `200`.
+После `sh scripts/prepare_lr6_webhook_demo.sh` ожидаемо: `200`.
 
-Если приложение запущено в Docker-образе без `.git`, ожидаемо: `500` с сообщением, что текущая директория не является Git-репозиторием. Это подтверждает обязательную проверку `.git`.
+В ответе должны быть команды:
 
-## 4. Проверка логов
+- `git checkout main`;
+- `git reset --hard HEAD`;
+- `git pull origin main`.
+
+В контейнере после успешного pull появится файл:
+
+```text
+/app/DEMO_WEBHOOK_MARKER.txt
+```
+
+## 4. Проверка 500 окружения
+
+Если не запускать demo-подготовку и приложение работает в Docker-образе без `.git`, корректный секрет вернет `500` с сообщением, что текущая директория не является Git-репозиторием.
+
+Это не падение приложения, а обработанный негативный сценарий неправильного deployment-окружения.
+
+## 5. Проверка логов
 
 После вызова проверьте файл:
 
 ```text
-deployment_logs/deployment.log
+/app/deployment_logs/deployment.log
 ```
 
 В логах должны быть:
@@ -62,13 +88,12 @@ deployment_logs/deployment.log
 
 Секретный ключ в логах отсутствует.
 
-## 5. Проверка 409
+## 6. Проверка 409
 
-Создайте lock-файл вручную:
+Создайте lock-файл вручную внутри контейнера:
 
 ```bash
-mkdir -p deployment_logs
-printf test > deployment_logs/deploy.lock
+docker compose exec api sh -lc "mkdir -p /app/deployment_logs && printf test > /app/deployment_logs/deploy.lock"
 ```
 
 Вызовите webhook с корректным секретом до истечения TTL.
