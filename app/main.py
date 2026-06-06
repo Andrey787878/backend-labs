@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from app import models
 from app.audit_events import register_audit_event_listeners
 from app.audit_routes import router as audit_router
+from app.attendance_routes import router as attendance_router
 from app.auth_routes import router as auth_router
 from app.config import get_settings
 from app.dependencies import PermissionDeniedError
@@ -78,6 +79,7 @@ def create_app() -> FastAPI:
     app.include_router(git_webhook_router)
     app.include_router(request_log_router)
     app.include_router(report_router)
+    app.include_router(attendance_router)
 
     return app
 
