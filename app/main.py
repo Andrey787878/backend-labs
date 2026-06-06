@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -11,12 +12,29 @@ from app.config import get_settings
 from app.dependencies import PermissionDeniedError
 from app.git_webhook_routes import router as git_webhook_router
 from app.rbac_routes import router as rbac_router
+from app.request_log_middleware import RequestLogMiddleware
+from app.request_log_routes import router as request_log_router
+from app.request_log_scheduler import (
+    run_request_log_cleanup_scheduler,
+    stop_request_log_cleanup_scheduler,
+)
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
     """Lifecycle hooks приложения. Схема БД управляется Alembic-миграциями."""
-    yield
+    settings = get_settings()
+    cleanup_task = asyncio.create_task(
+        run_request_log_cleanup_scheduler(
+            retention_hours=settings.request_log_retention_hours,
+            interval_seconds=settings.request_log_clean_interval_seconds,
+        )
+    )
+    app.state.request_log_cleanup_task = cleanup_task
+    try:
+        yield
+    finally:
+        await stop_request_log_cleanup_scheduler(cleanup_task)
 
 
 def create_app() -> FastAPI:
@@ -24,11 +42,16 @@ def create_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
     app.state.settings = settings
     register_audit_event_listeners()
+    app.add_middleware(
+        RequestLogMiddleware,
+        body_max_chars=settings.request_log_body_max_chars,
+    )
     app.add_exception_handler(PermissionDeniedError, _permission_denied_handler)
     app.include_router(auth_router)
     app.include_router(rbac_router)
     app.include_router(audit_router)
     app.include_router(git_webhook_router)
+    app.include_router(request_log_router)
 
     return app
 
