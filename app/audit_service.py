@@ -114,11 +114,17 @@ class AuditService:
         if target is None:
             if not before_state:
                 raise AuditNotFoundError("Состояние для восстановления пользователя пустое.")
+            password_hash = before_state.get("password_hash")
+            if not password_hash:
+                raise AuditConflictError(
+                    "Невозможно восстановить физически удаленного пользователя: "
+                    "password_hash не хранится в audit-log в целях безопасности."
+                )
             target = User(
                 id=int(before_state.get("id", log.entity_id)),
                 username=str(before_state["username"]),
                 email=str(before_state["email"]),
-                password_hash=str(before_state["password_hash"]),
+                password_hash=str(password_hash),
                 birthday=_parse_date(before_state["birthday"]),
             )
             self._db.add(target)
@@ -202,6 +208,7 @@ class AuditService:
             target.email = str(before_state["email"])
         if "birthday" in before_state:
             target.birthday = _parse_date(before_state["birthday"])
+        # Совместимость со старыми audit-log записями; новые snapshot-ы password_hash не хранят.
         if "password_hash" in before_state:
             target.password_hash = str(before_state["password_hash"])
         target.updated_at = self._now_utc()
@@ -365,7 +372,11 @@ def build_before_snapshot_for_update(target: object, after_snapshot: dict[str, A
 
 def sanitize_snapshot_for_storage(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Подготавливает snapshot к сохранению в change_logs."""
-    return dict(snapshot)
+    return {
+        key: value
+        for key, value in snapshot.items()
+        if key not in AUDIT_SECRET_FIELDS
+    }
 
 
 def _serialize_audit_value(value: Any) -> Any:
