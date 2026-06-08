@@ -59,6 +59,9 @@ sh scripts/prepare_lr6_webhook_demo.sh
 - `git reset --hard HEAD`;
 - `git pull origin main`.
 
+Если перед deployment рабочая директория была грязной, в ответе дополнительно будет
+непустой `warnings`. Список затронутых файлов смотрим в `deployment.log`.
+
 В контейнере после успешного pull появится файл:
 
 ```text
@@ -88,7 +91,24 @@ sh scripts/prepare_lr6_webhook_demo.sh
 
 Секретный ключ в логах отсутствует.
 
-## 6. Проверка 409
+## 6. Проверка dirty worktree warning
+
+После demo-подготовки создайте локальное незакоммиченное изменение внутри контейнера:
+
+```bash
+docker compose exec api sh -lc "cd /app && printf dirty > LOCAL_DIRTY_FILE.txt"
+```
+
+Вызовите webhook с корректным секретом.
+
+Ожидаемо:
+
+- `200`;
+- в JSON-ответе `warnings` содержит предупреждение про dirty worktree;
+- `/app/LOCAL_DIRTY_FILE.txt` удален;
+- в `deployment.log` есть события `dirty_worktree_detected` и `dirty_worktree_discarded`.
+
+## 7. Проверка 409
 
 Создайте lock-файл вручную внутри контейнера:
 

@@ -6,6 +6,8 @@
 - Webhook открыт для внешнего Git-сервиса и не требует JWT/RBAC.
 - Доступ защищается только `secret_key`, который сравнивается с `GIT_WEBHOOK_SECRET`.
 - Секрет хранится в `.env` и не логируется.
+- Перед обновлением проверяется dirty worktree. Локальные изменения не stash-ятся и не коммитятся:
+  они логируются как warning, затем очищаются перед deployment.
 - Ответы возвращаются в JSON.
 
 ## 2) Endpoint
@@ -46,9 +48,36 @@ git pull origin <GIT_DEFAULT_BRANCH>
 
 Ветка задается через `GIT_DEFAULT_BRANCH`, по умолчанию `main`.
 
-## 6) Логи и lock
+Перед основными командами выполняется preflight:
+
+```bash
+git status --porcelain --untracked-files=all
+```
+
+Если рабочая директория грязная, webhook пишет warning в `deployment.log`, возвращает
+warning в JSON-ответе и очищает локальные изменения:
+
+```bash
+git reset --hard HEAD
+git clean -fd -e deployment_logs/
+```
+
+Ignored-файлы, например `.env`, не удаляются, потому что `git clean` запускается без `-x`,
+а `deployment_logs/` явно исключается из очистки.
+
+## 6) Response DTO
+
+`DeploymentResponseDTO`:
+
+- `message` - итог deployment.
+- `branch` - обновляемая ветка.
+- `warnings` - предупреждения для администратора, например dirty worktree.
+- `commands` - результаты основных Git-команд `checkout`, `reset --hard`, `pull`.
+
+## 7) Логи и lock
 
 - Логи пишутся в `deployment_logs/deployment.log`.
 - Lock пишется в `deployment_logs/deploy.lock`.
 - Lock имеет TTL из `GIT_WEBHOOK_LOCK_TTL_SECONDS`.
-- Каждая Git-команда логируется с `stdout`, `stderr`, `return_code`.
+- Основные и preflight Git-команды логируются с `stdout`, `stderr`, `return_code`.
+- При dirty worktree логируются события `dirty_worktree_detected` и `dirty_worktree_discarded`.

@@ -12,7 +12,16 @@ git reset --hard HEAD
 git pull origin <GIT_DEFAULT_BRANCH>
 ```
 
-Поэтому перед запуском реального режима убедитесь, что все важные изменения закоммичены или сохранены. `git reset --hard` удаляет незакоммиченные изменения в примонтированной папке.
+Перед основными командами webhook проверяет dirty worktree через
+`git status --porcelain --untracked-files=all`. Если есть локальные незакоммиченные
+изменения, сервис пишет warning в `deployment.log`, возвращает warning в JSON-ответе,
+очищает изменения через `git reset --hard HEAD` и `git clean -fd -e deployment_logs/`,
+затем продолжает deployment.
+
+Это сделано специально для production-сценария: локальные изменения на сервере не
+stash-ятся и не commit-ятся, потому что они могут быть случайными или подозрительными.
+Ignored-файлы, например `.env`, не удаляются, потому что `git clean` запускается без `-x`,
+а `deployment_logs/` явно исключается из очистки.
 
 ## 1. Настроить ветку
 
@@ -106,7 +115,8 @@ Body:
 200 OK
 ```
 
-В ответе будут результаты команд `checkout`, `reset --hard`, `pull`.
+В ответе будут результаты основных команд `checkout`, `reset --hard`, `pull`.
+Если перед deployment были локальные изменения, поле `warnings` будет непустым.
 
 ## 7. Проверить логи
 
@@ -117,7 +127,9 @@ docker compose -f docker-compose.yml -f docker-compose.real-git.yml exec api tai
 В логах должны быть:
 
 - `deployment_start`;
+- `git_preflight_command`;
 - `git_command`;
+- `dirty_worktree_detected` / `dirty_worktree_discarded`, если были локальные изменения;
 - `deployment_finish`;
 - статус `success`.
 
@@ -127,4 +139,5 @@ docker compose -f docker-compose.yml -f docker-compose.real-git.yml exec api tai
 
 В обычном Docker image `.git` не копируется, потому что это нормальная практика сборки. Для демонстрации реального `git pull` используется отдельный compose-файл `docker-compose.real-git.yml`, который явно примонтирует рабочий репозиторий в контейнер.
 
-Так webhook работает с настоящим `origin`, но этот режим нужно запускать осознанно, потому что `git reset --hard` влияет на примонтированную папку.
+Так webhook работает с настоящим `origin`, но этот режим нужно запускать осознанно:
+локальные незакоммиченные изменения в примонтированной папке будут залогированы и удалены.
