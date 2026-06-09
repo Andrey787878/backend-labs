@@ -105,7 +105,7 @@ class AuditService:
             # До мутации записи не существовало -> откат creation = удалить запись.
             user = self._db.get(User, log.entity_id)
             if user is None:
-                raise AuditNotFoundError("Пользователь для отката создания не найден.")
+                return log
             self._db.delete(user)
             self._db.flush()
             return self._latest_entity_log(AUDIT_ENTITY_USER, log.entity_id)
@@ -114,17 +114,26 @@ class AuditService:
         if target is None:
             if not before_state:
                 raise AuditNotFoundError("Состояние для восстановления пользователя пустое.")
+            password_hash = before_state.get("password_hash")
+            if not password_hash:
+                raise AuditConflictError(
+                    "Невозможно восстановить физически удаленного пользователя: "
+                    "password_hash не хранится в audit-log в целях безопасности."
+                )
             target = User(
                 id=int(before_state.get("id", log.entity_id)),
                 username=str(before_state["username"]),
                 email=str(before_state["email"]),
-                password_hash=str(before_state["password_hash"]),
+                password_hash=str(password_hash),
                 birthday=_parse_date(before_state["birthday"]),
             )
             self._db.add(target)
             self._db.flush()
 
         # Восстановление мягко удаленного пользователя.
+        if _user_matches_before_state(target, before_state):
+            return log
+
         target.deleted_at = None
         target.deleted_by = None
         self._apply_user_state(target, before_state)
@@ -138,7 +147,7 @@ class AuditService:
         if not before_state and after_state:
             role = self._db.get(Role, log.entity_id)
             if role is None:
-                raise AuditNotFoundError("Роль для отката создания не найдена.")
+                return log
             self._db.delete(role)
             self._db.flush()
             return self._latest_entity_log(AUDIT_ENTITY_ROLE, log.entity_id)
@@ -157,6 +166,9 @@ class AuditService:
             self._db.add(target)
             self._db.flush()
 
+        if _role_matches_before_state(target, before_state):
+            return log
+
         target.deleted_at = None
         target.deleted_by = None
         self._apply_role_state(target, before_state)
@@ -170,7 +182,7 @@ class AuditService:
         if not before_state and after_state:
             permission = self._db.get(Permission, log.entity_id)
             if permission is None:
-                raise AuditNotFoundError("Разрешение для отката создания не найдено.")
+                return log
             self._db.delete(permission)
             self._db.flush()
             return self._latest_entity_log(AUDIT_ENTITY_PERMISSION, log.entity_id)
@@ -189,6 +201,9 @@ class AuditService:
             self._db.add(target)
             self._db.flush()
 
+        if _permission_matches_before_state(target, before_state):
+            return log
+
         target.deleted_at = None
         target.deleted_by = None
         self._apply_permission_state(target, before_state)
@@ -202,6 +217,7 @@ class AuditService:
             target.email = str(before_state["email"])
         if "birthday" in before_state:
             target.birthday = _parse_date(before_state["birthday"])
+        # Совместимость со старыми audit-log записями; новые snapshot-ы password_hash не хранят.
         if "password_hash" in before_state:
             target.password_hash = str(before_state["password_hash"])
         target.updated_at = self._now_utc()
@@ -365,7 +381,56 @@ def build_before_snapshot_for_update(target: object, after_snapshot: dict[str, A
 
 def sanitize_snapshot_for_storage(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Подготавливает snapshot к сохранению в change_logs."""
-    return dict(snapshot)
+    return {
+        key: value
+        for key, value in snapshot.items()
+        if key not in AUDIT_SECRET_FIELDS
+    }
+
+
+def _user_matches_before_state(target: User, before_state: dict[str, Any]) -> bool:
+    """Проверяет, находится ли пользователь уже в состоянии before."""
+    if target.deleted_at is not None or target.deleted_by is not None:
+        return False
+    if "username" in before_state and target.username != str(before_state["username"]):
+        return False
+    if "email" in before_state and target.email != str(before_state["email"]):
+        return False
+    if "birthday" in before_state and target.birthday != _parse_date(before_state["birthday"]):
+        return False
+    if "password_hash" in before_state and target.password_hash != str(before_state["password_hash"]):
+        return False
+    return True
+
+
+def _role_matches_before_state(target: Role, before_state: dict[str, Any]) -> bool:
+    """Проверяет, находится ли роль уже в состоянии before."""
+    if target.deleted_at is not None or target.deleted_by is not None:
+        return False
+    if "name" in before_state and target.name != str(before_state["name"]):
+        return False
+    if "slug" in before_state and target.slug != str(before_state["slug"]):
+        return False
+    if "description" in before_state and target.description != _none_or_str(
+        before_state.get("description")
+    ):
+        return False
+    return True
+
+
+def _permission_matches_before_state(target: Permission, before_state: dict[str, Any]) -> bool:
+    """Проверяет, находится ли разрешение уже в состоянии before."""
+    if target.deleted_at is not None or target.deleted_by is not None:
+        return False
+    if "name" in before_state and target.name != str(before_state["name"]):
+        return False
+    if "slug" in before_state and target.slug != str(before_state["slug"]):
+        return False
+    if "description" in before_state and target.description != _none_or_str(
+        before_state.get("description")
+    ):
+        return False
+    return True
 
 
 def _serialize_audit_value(value: Any) -> Any:

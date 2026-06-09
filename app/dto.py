@@ -265,6 +265,10 @@ class DeploymentResponseDTO(BaseModel):
 
     message: str = Field(description="Итоговое сообщение deployment-процесса.")
     branch: str = Field(description="Git-ветка, которая обновлялась.")
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Предупреждения deployment-процесса, требующие внимания администратора.",
+    )
     commands: list[GitCommandResultDTO] = Field(
         default_factory=list,
         description="Результаты выполненных Git-команд.",

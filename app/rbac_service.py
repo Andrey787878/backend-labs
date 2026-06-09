@@ -105,34 +105,40 @@ class RbacService:
         self._require_user(actor_user_id, include_deleted=False)
         user = self._require_user(user_id, include_deleted=False)
 
+        if not (data.has_username or data.has_email or data.has_birthday):
+            raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
+
         changed = False
         with bind_audit_actor(self._db, actor_user_id):
             if data.has_username:
                 if data.username is None:
                     raise ValueError("username не должен быть null.")
                 normalized_username = data.username.strip()
-                if self._username_exists(normalized_username, exclude_user_id=user_id):
-                    raise UserAlreadyExistsError("Пользователь с таким username уже существует.")
-                user.username = normalized_username
-                changed = True
+                if user.username != normalized_username:
+                    if self._username_exists(normalized_username, exclude_user_id=user_id):
+                        raise UserAlreadyExistsError("Пользователь с таким username уже существует.")
+                    user.username = normalized_username
+                    changed = True
 
             if data.has_email:
                 if data.email is None:
                     raise ValueError("email не должен быть null.")
                 normalized_email = data.email.strip()
-                if self._email_exists(normalized_email, exclude_user_id=user_id):
-                    raise UserAlreadyExistsError("Пользователь с таким email уже существует.")
-                user.email = normalized_email
-                changed = True
+                if user.email != normalized_email:
+                    if self._email_exists(normalized_email, exclude_user_id=user_id):
+                        raise UserAlreadyExistsError("Пользователь с таким email уже существует.")
+                    user.email = normalized_email
+                    changed = True
 
             if data.has_birthday:
                 if data.birthday is None:
                     raise ValueError("birthday не должен быть null.")
-                user.birthday = data.birthday
-                changed = True
+                if user.birthday != data.birthday:
+                    user.birthday = data.birthday
+                    changed = True
 
             if not changed:
-                raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
+                return self._to_user_dto(user)
 
             user.updated_at = self._now_utc()
             self._commit_or_rollback(
@@ -320,10 +326,16 @@ class RbacService:
 
         normalized_name = data.name.strip()
         normalized_slug = data.slug.strip()
-        if self._role_name_exists(normalized_name, exclude_role_id=role_id):
+        name_changed = role.name != normalized_name
+        slug_changed = role.slug != normalized_slug
+        description_changed = role.description != data.description
+
+        if name_changed and self._role_name_exists(normalized_name, exclude_role_id=role_id):
             raise RoleAlreadyExistsError("Роль с таким name уже существует.")
-        if self._role_slug_exists(normalized_slug, exclude_role_id=role_id):
+        if slug_changed and self._role_slug_exists(normalized_slug, exclude_role_id=role_id):
             raise RoleAlreadyExistsError("Роль с таким slug уже существует.")
+        if not (name_changed or slug_changed or description_changed):
+            return self._to_role_dto(role)
 
         with bind_audit_actor(self._db, actor_user_id):
             role.name = normalized_name
@@ -342,32 +354,38 @@ class RbacService:
         self._require_user(actor_user_id, include_deleted=False)
         role = self._require_role(role_id, include_deleted=False)
 
+        if not (data.has_name or data.has_slug or data.has_description):
+            raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
+
         with bind_audit_actor(self._db, actor_user_id):
             changed = False
             if data.has_name:
                 if data.name is None:
                     raise ValueError("name не должен быть null.")
                 normalized_name = data.name.strip()
-                if self._role_name_exists(normalized_name, exclude_role_id=role_id):
-                    raise RoleAlreadyExistsError("Роль с таким name уже существует.")
-                role.name = normalized_name
-                changed = True
+                if role.name != normalized_name:
+                    if self._role_name_exists(normalized_name, exclude_role_id=role_id):
+                        raise RoleAlreadyExistsError("Роль с таким name уже существует.")
+                    role.name = normalized_name
+                    changed = True
 
             if data.has_slug:
                 if data.slug is None:
                     raise ValueError("slug не должен быть null.")
                 normalized_slug = data.slug.strip()
-                if self._role_slug_exists(normalized_slug, exclude_role_id=role_id):
-                    raise RoleAlreadyExistsError("Роль с таким slug уже существует.")
-                role.slug = normalized_slug
-                changed = True
+                if role.slug != normalized_slug:
+                    if self._role_slug_exists(normalized_slug, exclude_role_id=role_id):
+                        raise RoleAlreadyExistsError("Роль с таким slug уже существует.")
+                    role.slug = normalized_slug
+                    changed = True
 
             if data.has_description:
-                role.description = data.description
-                changed = True
+                if role.description != data.description:
+                    role.description = data.description
+                    changed = True
 
             if not changed:
-                raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
+                return self._to_role_dto(role)
 
             role.updated_at = self._now_utc()
             self._commit_or_rollback(
@@ -474,10 +492,22 @@ class RbacService:
 
         normalized_name = data.name.strip()
         normalized_slug = data.slug.strip()
-        if self._permission_name_exists(normalized_name, exclude_permission_id=permission_id):
+        name_changed = permission.name != normalized_name
+        slug_changed = permission.slug != normalized_slug
+        description_changed = permission.description != data.description
+
+        if name_changed and self._permission_name_exists(
+            normalized_name,
+            exclude_permission_id=permission_id,
+        ):
             raise PermissionAlreadyExistsError("Разрешение с таким name уже существует.")
-        if self._permission_slug_exists(normalized_slug, exclude_permission_id=permission_id):
+        if slug_changed and self._permission_slug_exists(
+            normalized_slug,
+            exclude_permission_id=permission_id,
+        ):
             raise PermissionAlreadyExistsError("Разрешение с таким slug уже существует.")
+        if not (name_changed or slug_changed or description_changed):
+            return self._to_permission_dto(permission)
 
         with bind_audit_actor(self._db, actor_user_id):
             permission.name = normalized_name
@@ -503,32 +533,44 @@ class RbacService:
         self._require_user(actor_user_id, include_deleted=False)
         permission = self._require_permission(permission_id, include_deleted=False)
 
+        if not (data.has_name or data.has_slug or data.has_description):
+            raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
+
         with bind_audit_actor(self._db, actor_user_id):
             changed = False
             if data.has_name:
                 if data.name is None:
                     raise ValueError("name не должен быть null.")
                 normalized_name = data.name.strip()
-                if self._permission_name_exists(normalized_name, exclude_permission_id=permission_id):
-                    raise PermissionAlreadyExistsError("Разрешение с таким name уже существует.")
-                permission.name = normalized_name
-                changed = True
+                if permission.name != normalized_name:
+                    if self._permission_name_exists(
+                        normalized_name,
+                        exclude_permission_id=permission_id,
+                    ):
+                        raise PermissionAlreadyExistsError("Разрешение с таким name уже существует.")
+                    permission.name = normalized_name
+                    changed = True
 
             if data.has_slug:
                 if data.slug is None:
                     raise ValueError("slug не должен быть null.")
                 normalized_slug = data.slug.strip()
-                if self._permission_slug_exists(normalized_slug, exclude_permission_id=permission_id):
-                    raise PermissionAlreadyExistsError("Разрешение с таким slug уже существует.")
-                permission.slug = normalized_slug
-                changed = True
+                if permission.slug != normalized_slug:
+                    if self._permission_slug_exists(
+                        normalized_slug,
+                        exclude_permission_id=permission_id,
+                    ):
+                        raise PermissionAlreadyExistsError("Разрешение с таким slug уже существует.")
+                    permission.slug = normalized_slug
+                    changed = True
 
             if data.has_description:
-                permission.description = data.description
-                changed = True
+                if permission.description != data.description:
+                    permission.description = data.description
+                    changed = True
 
             if not changed:
-                raise ValueError("Хотя бы одно поле для обновления должно быть передано.")
+                return self._to_permission_dto(permission)
 
             permission.updated_at = self._now_utc()
             self._commit_or_rollback(
