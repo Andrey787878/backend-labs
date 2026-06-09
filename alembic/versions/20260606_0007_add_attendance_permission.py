@@ -1,7 +1,7 @@
 """Add attendance auto credit permission for LR12.
 
 Revision ID: 20260606_0007
-Revises: 20260606_0006
+Revises: 20260604_0005
 Create Date: 2026-06-06 12:00:00
 """
 
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 
 revision = "20260606_0007"
-down_revision = "20260606_0006"
+down_revision = "20260604_0005"
 branch_labels = None
 depends_on = None
 

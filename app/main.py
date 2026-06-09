@@ -14,8 +14,6 @@ from app.config import get_settings
 from app.dependencies import PermissionDeniedError
 from app.git_webhook_routes import router as git_webhook_router
 from app.rbac_routes import router as rbac_router
-from app.report_routes import router as report_router
-from app.report_worker import run_report_worker, stop_report_worker
 from app.request_log_middleware import RequestLogMiddleware
 from app.request_log_routes import router as request_log_router
 from app.request_log_scheduler import (
@@ -24,9 +22,6 @@ from app.request_log_scheduler import (
 )
 
 APPLICATION_LOGGER_NAMES = (
-    "app.report_job_processor",
-    "app.report_sender",
-    "app.report_worker",
     "app.request_log_middleware",
     "app.request_log_scheduler",
 )
@@ -52,13 +47,10 @@ async def lifespan(app: FastAPI):
             interval_seconds=settings.request_log_clean_interval_seconds,
         )
     )
-    report_worker_task = asyncio.create_task(run_report_worker(settings))
     app.state.request_log_cleanup_task = cleanup_task
-    app.state.report_worker_task = report_worker_task
     try:
         yield
     finally:
-        await stop_report_worker(report_worker_task)
         await stop_request_log_cleanup_scheduler(cleanup_task)
 
 
@@ -78,7 +70,6 @@ def create_app() -> FastAPI:
     app.include_router(audit_router)
     app.include_router(git_webhook_router)
     app.include_router(request_log_router)
-    app.include_router(report_router)
     app.include_router(attendance_router)
 
     return app

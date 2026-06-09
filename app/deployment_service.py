@@ -48,30 +48,26 @@ class DeploymentService:
         self._logger.log_start(client_ip=client_ip)
 
         commands: list[GitCommandResultDTO] = []
+        warnings: list[str] = []
         lock_acquired = False
 
         try:
             self._lock.acquire()
             lock_acquired = True
             self._ensure_git_repository()
+            warnings.extend(self._prepare_worktree())
 
             for command in self._build_commands():
-                result = self._runner.run(command)
-                commands.append(result)
-                self._logger.log(
-                    "git_command",
-                    status="success" if result.return_code == 0 else "failed",
-                    command=result.command,
-                    return_code=result.return_code,
-                    stdout=result.stdout,
-                    stderr=result.stderr,
-                )
-                if result.return_code != 0:
-                    raise DeploymentCommandError(result)
+                self._run_git_command(command=command, commands=commands)
 
             message = "Deployment completed successfully"
             self._logger.log_finish(status="success", message=message)
-            return DeploymentResponseDTO(message=message, branch=self._branch, commands=commands)
+            return DeploymentResponseDTO(
+                message=message,
+                branch=self._branch,
+                warnings=warnings,
+                commands=commands,
+            )
         except DeploymentLockError:
             self._logger.log_finish(status="conflict", message="Deployment already in progress")
             raise
@@ -93,6 +89,71 @@ class DeploymentService:
         if not (self._project_root / ".git").exists():
             raise DeploymentRepositoryError("Current project root is not a Git repository")
 
+    def _prepare_worktree(self) -> list[str]:
+        """Фиксирует и очищает локальные изменения, чтобы deployment не блокировался."""
+        status_result = self._run_git_command(
+            command=["git", "status", "--porcelain", "--untracked-files=all"],
+            commands=None,
+            event="git_preflight_command",
+        )
+        dirty_files = [
+            line
+            for line in status_result.stdout.splitlines()
+            if line.strip() and not _is_deployment_artifact_status_line(line)
+        ]
+        if not dirty_files:
+            return []
+
+        warning = (
+            "Dirty worktree detected and discarded before deployment. "
+            "See deployment_logs/deployment.log for affected files."
+        )
+        self._logger.log(
+            "dirty_worktree_detected",
+            status="warning",
+            files=dirty_files,
+            files_count=len(dirty_files),
+        )
+
+        self._run_git_command(
+            command=["git", "reset", "--hard", "HEAD"],
+            commands=None,
+            event="git_preflight_command",
+        )
+        self._run_git_command(
+            command=["git", "clean", "-fd", "-e", "deployment_logs/"],
+            commands=None,
+            event="git_preflight_command",
+        )
+        self._logger.log(
+            "dirty_worktree_discarded",
+            status="warning",
+            files_count=len(dirty_files),
+        )
+        return [warning]
+
+    def _run_git_command(
+        self,
+        command: list[str],
+        commands: list[GitCommandResultDTO] | None,
+        event: str = "git_command",
+    ) -> GitCommandResultDTO:
+        """Выполняет Git-команду, логирует результат и проверяет код завершения."""
+        result = self._runner.run(command)
+        if commands is not None:
+            commands.append(result)
+        self._logger.log(
+            event,
+            status="success" if result.return_code == 0 else "failed",
+            command=result.command,
+            return_code=result.return_code,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+        if result.return_code != 0:
+            raise DeploymentCommandError(result)
+        return result
+
     def _build_commands(self) -> list[list[str]]:
         """Возвращает Git-команды в обязательной для лабораторной последовательности."""
         return [
@@ -100,3 +161,13 @@ class DeploymentService:
             ["git", "reset", "--hard", "HEAD"],
             ["git", "pull", "origin", self._branch],
         ]
+
+
+def _is_deployment_artifact_status_line(line: str) -> bool:
+    """Исключает собственные runtime-артефакты webhook-а из dirty warning."""
+    normalized = line.strip()
+    if not normalized.startswith("?? "):
+        return False
+
+    path = normalized[3:]
+    return path == "deployment_logs" or path.startswith("deployment_logs/")

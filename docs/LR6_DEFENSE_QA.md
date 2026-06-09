@@ -22,13 +22,28 @@ git pull origin <branch>
 
 Ветка берется из `GIT_DEFAULT_BRANCH`.
 
+## Что если на сервере есть незакоммиченные изменения?
+
+Перед deployment выполняется `git status --porcelain --untracked-files=all`.
+
+Если рабочая директория грязная, webhook не делает `stash` и не делает `commit`, потому
+что локальные изменения на production-сервере могут быть случайными или подозрительными.
+Сервис пишет warning в `deployment_logs/deployment.log`, добавляет warning в JSON-ответ,
+очищает локальные изменения через `git reset --hard HEAD` и
+`git clean -fd -e deployment_logs/`, затем продолжает обязательные команды
+`checkout`, `reset --hard`, `pull`.
+
+Ignored-файлы, например `.env`, не удаляются, потому что `git clean` запускается без `-x`,
+а `deployment_logs/` явно исключается из очистки.
+
 ## Как защищена конкуренция?
 
 Через файловый lock `deployment_logs/deploy.lock` с TTL. Если lock активен, API возвращает `409`.
 
 ## Где логирование?
 
-В `deployment_logs/deployment.log`. Логируются старт, IP, каждая команда, stdout/stderr, return code, ошибки и завершение.
+В `deployment_logs/deployment.log`. Логируются старт, IP, каждая команда, stdout/stderr,
+return code, dirty worktree warning, ошибки и завершение.
 
 ## Где находится код ЛР6?
 

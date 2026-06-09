@@ -32,8 +32,5 @@ class PermissionSlugs:
     READ_LOG = "read-log"
     DELETE_LOG = "delete-log"
 
-    # ==================== ЛР8: Queued Analytics Reports ====================
-    GENERATE_REPORT = "generate-report"
-
     # ==================== ЛР12: Attendance Auto Credit ====================
     CALCULATE_ATTENDANCE = "calculate-attendance"

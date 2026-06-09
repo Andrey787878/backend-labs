@@ -84,23 +84,6 @@ class Settings(BaseSettings):
         ge=60,
     )
 
-    # ==================== ЛР8: Queued Analytics Reports ====================
-    report_time_interval_hours: int = Field(default=24, alias="REPORT_TIME_INTERVAL_HOURS", ge=1)
-    report_job_timeout_minutes: int = Field(default=5, alias="REPORT_JOB_TIMEOUT_MINUTES", ge=1)
-    report_job_retry_delay_minutes: int = Field(
-        default=2,
-        alias="REPORT_JOB_RETRY_DELAY_MINUTES",
-        ge=1,
-    )
-    report_job_max_attempts: int = Field(default=3, alias="REPORT_JOB_MAX_ATTEMPTS", ge=1)
-    report_admin_email: str = Field(default="admin@example.com", alias="REPORT_ADMIN_EMAIL")
-    report_worker_poll_interval_seconds: int = Field(
-        default=5,
-        alias="REPORT_WORKER_POLL_INTERVAL_SECONDS",
-        ge=1,
-    )
-    reports_dir: str = Field(default="reports", alias="REPORTS_DIR", min_length=1)
-
     # ==================== ЛР12: Attendance Auto Credit ====================
     required_labs: int = Field(default=5, alias="REQUIRED_LABS", ge=1)
     attendance_percent_threshold: int = Field(
@@ -168,24 +151,6 @@ class Settings(BaseSettings):
             raise ValueError("GIT_DEFAULT_BRANCH содержит недопустимые символы.")
         if normalized.endswith("/") or ".." in normalized or "@{" in normalized:
             raise ValueError("GIT_DEFAULT_BRANCH должен быть корректным именем Git-ветки.")
-        return normalized
-
-    @field_validator("report_admin_email")
-    @classmethod
-    def validate_report_admin_email(cls, value: str) -> str:
-        """Проверяет, что список получателей отчёта не пустой."""
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("REPORT_ADMIN_EMAIL не должен быть пустым.")
-        return normalized
-
-    @field_validator("reports_dir")
-    @classmethod
-    def validate_reports_dir(cls, value: str) -> str:
-        """Нормализует директорию хранения отчётов."""
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("REPORTS_DIR не должен быть пустым.")
         return normalized
 
     @property

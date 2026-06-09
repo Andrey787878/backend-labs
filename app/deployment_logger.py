@@ -21,6 +21,7 @@ class DeploymentLogger:
             "event": event,
             **payload,
         }
+        self._log_dir.mkdir(parents=True, exist_ok=True)
         with self._log_file.open("a", encoding="utf-8") as log_file:
             log_file.write(json.dumps(record, ensure_ascii=False) + "\n")
 

@@ -9,5 +9,4 @@ __pycache__/
 .pytest_cache/
 tokens.txt
 deployment_logs/
-reports/
 tmp/

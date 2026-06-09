@@ -1,0 +1,12 @@
+services:
+  api:
+    volumes:
+      # Real Git webhook mode: mounts the host repository, including .git, into the container.
+      # Use this only when you intentionally want /hooks/git to run against the real repo.
+      - .:/app
+    command:
+      - sh
+      - -lc
+      - |
+        git config --global --add safe.directory /app
+        python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
