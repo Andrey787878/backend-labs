@@ -10,8 +10,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.dto import AuthSuccessDTO, RegisterInputDTO, TokenListDTO, TokenMetaDTO, UserDTO
-from app.models import AuthSession, User
+from app.dto import AuthSuccessDTO, RegisterInputDTO, RoleDTO, TokenListDTO, TokenMetaDTO, UserDTO
+from app.models import AuthSession, Role, User
 from app.token_service import TokenService, TokenServiceError
 
 
@@ -421,14 +421,30 @@ class AuthService:
             raise UserNotFoundError("Пользователь не найден.")
         return user
 
-    @staticmethod
-    def _to_user_dto(user: User) -> UserDTO:
+    @classmethod
+    def _to_user_dto(cls, user: User) -> UserDTO:
         """Преобразует модель User в UserDTO."""
+        roles = sorted(user.roles, key=lambda item: item.id)
         return UserDTO(
             id=user.id,
             username=user.username,
             email=user.email,
             birthday=user.birthday,
+            roles=[cls._to_role_dto(role) for role in roles],
+        )
+
+    @staticmethod
+    def _to_role_dto(role: Role) -> RoleDTO:
+        """Преобразует модель Role в публичный DTO."""
+        return RoleDTO(
+            id=role.id,
+            name=role.name,
+            slug=role.slug,
+            description=role.description,
+            created_at=role.created_at,
+            created_by=role.created_by,
+            deleted_at=role.deleted_at,
+            deleted_by=role.deleted_by,
         )
 
     @staticmethod
