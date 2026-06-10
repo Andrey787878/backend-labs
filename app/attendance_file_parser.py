@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from io import BytesIO
 from typing import Any
+from zipfile import BadZipFile
 
 from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
@@ -35,7 +36,7 @@ class AttendanceFileParser:
         """Возвращает нормализованные строки из .xlsx-файла."""
         try:
             workbook = load_workbook(BytesIO(file_content), read_only=True, data_only=True)
-        except (InvalidFileException, OSError, ValueError) as exc:
+        except (BadZipFile, InvalidFileException, OSError, ValueError) as exc:
             raise AttendanceParseError("Не удалось прочитать .xlsx файл.") from exc
 
         if self.SHEET_NAME not in workbook.sheetnames:

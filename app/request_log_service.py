@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.dto import LogRequestCollectionDTO, LogRequestDTO, LogRequestListItemDTO
 from app.models import LogRequest
+from app.request_log_sanitizer import RequestLogSanitizer
 from app.schemas import LogRequestIndexQuery
 
 
@@ -21,6 +22,7 @@ class RequestLogService:
 
     def __init__(self, db: Session) -> None:
         self._db = db
+        self._sanitizer = RequestLogSanitizer()
 
     def create_log(
         self,
@@ -134,18 +136,18 @@ class RequestLogService:
         """Преобразует ORM-модель в полную DTO."""
         return LogRequestDTO(
             id=log.id,
-            full_url=log.full_url,
-            method=log.method,
-            controller_path=log.controller_path,
-            controller_method=log.controller_method,
-            request_body=log.request_body,
-            request_headers=log.request_headers,
+            full_url=self._sanitize_frontend(log.full_url),
+            method=self._sanitize_frontend(log.method),
+            controller_path=self._sanitize_frontend(log.controller_path),
+            controller_method=self._sanitize_frontend(log.controller_method),
+            request_body=self._sanitize_frontend(log.request_body),
+            request_headers=self._sanitize_frontend(log.request_headers),
             user_id=log.user_id,
-            ip_address=log.ip_address,
-            user_agent=log.user_agent,
+            ip_address=self._sanitize_frontend(log.ip_address),
+            user_agent=self._sanitize_frontend(log.user_agent),
             response_status=log.response_status,
-            response_body=log.response_body,
-            response_headers=log.response_headers,
+            response_body=self._sanitize_frontend(log.response_body),
+            response_headers=self._sanitize_frontend(log.response_headers),
             called_at=log.called_at,
             created_at=log.created_at,
         )
@@ -154,10 +156,14 @@ class RequestLogService:
         """Преобразует ORM-модель в короткую DTO для списка."""
         return LogRequestListItemDTO(
             id=log.id,
-            full_url=log.full_url,
-            method=log.method,
-            controller_path=log.controller_path,
-            controller_method=log.controller_method,
+            full_url=self._sanitize_frontend(log.full_url),
+            method=self._sanitize_frontend(log.method),
+            controller_path=self._sanitize_frontend(log.controller_path),
+            controller_method=self._sanitize_frontend(log.controller_method),
             response_status=log.response_status,
             called_at=log.called_at,
         )
+
+    def _sanitize_frontend(self, value: Any) -> Any:
+        """Готовит значение лога к безопасной отдаче во фронт."""
+        return self._sanitizer.sanitize_for_frontend(value)
