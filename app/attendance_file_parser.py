@@ -55,6 +55,9 @@ class AttendanceFileParser:
                 continue
             rows.append(self._parse_row(row_number=row_number, raw_row=raw_row, header_map=header_map))
 
+        if not rows:
+            raise AttendanceParseError("Лист 'Посещаемость' должен содержать хотя бы одну строку данных.")
+
         return rows
 
     def _build_header_map(self, header_row: tuple[Any, ...]) -> dict[str, int]:
@@ -225,6 +228,14 @@ class AttendanceFileParser:
             raise AttendanceParseError(f"{field_name} не должен быть пустым.")
 
         normalized = str(value).strip().lower().replace("ё", "е")
+        try:
+            parsed_float = float(normalized)
+        except ValueError:
+            pass
+        else:
+            if parsed_float.is_integer():
+                normalized = str(int(parsed_float))
+
         if normalized in {"1", "да", "yes", "true", "y", "истина"}:
             return True
         if normalized in {"0", "нет", "no", "false", "n", "ложь"}:

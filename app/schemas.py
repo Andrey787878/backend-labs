@@ -440,6 +440,7 @@ LogRequestFilterKey = Literal[
     "controller_path",
 ]
 SortOrder = Literal["asc", "desc"]
+NUMERIC_LOG_REQUEST_FILTERS = {"user_id", "response_status"}
 
 
 class LogRequestSortItem(BaseModel):
@@ -464,6 +465,17 @@ class LogRequestFilterItem(BaseModel):
     def validate_value(cls, value: str) -> str:
         """Нормализует значение фильтра и запрещает пустые строки."""
         return _validate_non_blank(value, "value").strip()
+
+    @model_validator(mode="after")
+    def validate_numeric_filter_value(self) -> "LogRequestFilterItem":
+        """Отдаёт понятный 422 для числовых фильтров вместо ошибки int()."""
+        if self.key not in NUMERIC_LOG_REQUEST_FILTERS:
+            return self
+        try:
+            int(self.value)
+        except ValueError as exc:
+            raise ValueError(f"Фильтр {self.key} должен быть целым числом.") from exc
+        return self
 
 
 class LogRequestIndexQuery(BaseModel):

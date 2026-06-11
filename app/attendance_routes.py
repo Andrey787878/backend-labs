@@ -13,11 +13,35 @@ from app.dependencies import require_permission
 from app.rbac_permissions import PermissionSlugs
 
 
+UPLOAD_READ_CHUNK_SIZE_BYTES = 1024 * 1024
+
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
 
 
 def _raise_validation_error(message: str) -> NoReturn:
     raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=message)
+
+
+async def _read_limited_upload_file(
+    file: UploadFile,
+    *,
+    max_size_bytes: int,
+    max_size_mb: int,
+) -> bytes:
+    """Читает файл по частям и останавливается сразу после превышения лимита."""
+    chunks: list[bytes] = []
+    total_size = 0
+
+    while chunk := await file.read(UPLOAD_READ_CHUNK_SIZE_BYTES):
+        total_size += len(chunk)
+        if total_size > max_size_bytes:
+            _raise_validation_error(f"Размер файла не должен превышать {max_size_mb} МБ.")
+        chunks.append(chunk)
+
+    if not chunks:
+        _raise_validation_error("Файл не должен быть пустым.")
+
+    return b"".join(chunks)
 
 
 @router.post(
@@ -48,15 +72,12 @@ async def calculate_attendance(
     if not filename.lower().endswith(".xlsx"):
         _raise_validation_error("Файл должен иметь расширение .xlsx.")
 
-    file_content = await file.read()
-    if not file_content:
-        _raise_validation_error("Файл не должен быть пустым.")
-
     max_size_bytes = settings.upload_max_size_mb * 1024 * 1024
-    if len(file_content) > max_size_bytes:
-        _raise_validation_error(
-            f"Размер файла не должен превышать {settings.upload_max_size_mb} МБ."
-        )
+    file_content = await _read_limited_upload_file(
+        file,
+        max_size_bytes=max_size_bytes,
+        max_size_mb=settings.upload_max_size_mb,
+    )
 
     try:
         rows = AttendanceFileParser().parse(file_content)
